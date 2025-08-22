@@ -1,0 +1,97 @@
+Code_question,Nom,Region
+G1Q00002_SQ001,Ain,Rhone-Alpes
+G1Q00002_SQ002,Aisne,Picardie
+G1Q00002_SQ003,Allier,Auvergne
+G1Q00002_SQ004,Alpes-de-Haute-Provence,Provence-Alpes-Cote d'Azur
+G1Q00002_SQ006,Alpes-Maritimes,Provence-Alpes-Cote d'Azur
+G1Q00002_SQ007,Ardeche,Rhone-Alpes
+G1Q00002_SQ009,Ardennes,Champagne-Ardenne
+G1Q00002_SQ008,Ariege,Midi-Pyrenees
+G1Q00002_SQ010,Aube,Champagne-Ardenne
+G1Q00002_SQ012,Aude,Languedoc-Roussillon
+G1Q00002_SQ011,Aveyron,Midi-Pyrenees
+G1Q00002_SQ068,Bas-Rhin,Alsace
+G1Q00002_SQ013,Bouches-du-Rhone,Provence-Alpes-Cote d'Azur
+G1Q00002_SQ014,Calvados,Basse-Normandie
+G1Q00002_SQ015,Cantal,Auvergne
+G1Q00002_SQ016,Charente,Poitou-Charentes
+G1Q00002_SQ017,Charente-Maritime,Poitou-Charentes
+G1Q00002_SQ018,Cher,Centre
+G1Q00002_SQ019,Correze,Limousin
+G1Q00002_SQ029,Corse-du-Sud,Corse
+G1Q00002_SQ020,Cote-d'Or,Bourgogne
+G1Q00002_SQ021,Cotes-d'Armor,Bretagne
+G1Q00002_SQ022,Creuse,Limousin
+G1Q00002_SQ081,Deux-Sevres,Poitou-Charentes
+G1Q00002_SQ024,Dordogne,Aquitaine
+G1Q00002_SQ023,Doubs,Franche-Comte
+G1Q00002_SQ025,Drome,Rhone-Alpes
+G1Q00002_SQ092,Essonne,Ile-de-France
+G1Q00002_SQ026,Eure,Haute-Normandie
+G1Q00002_SQ027,Eure-et-Loir,Centre
+G1Q00002_SQ028,Finistere,Bretagne
+G1Q00002_SQ031,Gard,Languedoc-Roussillon
+G1Q00002_SQ033,Gers,Midi-Pyrenees
+G1Q00002_SQ034,Gironde,Aquitaine
+G1Q00002_SQ072,Haut-Rhin,Alsace
+G1Q00002_SQ030,Haute-Corse,Corse
+G1Q00002_SQ032,Haute-Garonne,Midi-Pyrenees
+G1Q00002_SQ045,Haute-Loire,Auvergne
+G1Q00002_SQ053,Haute-Marne,Champagne-Ardenne
+G1Q00002_SQ070,Haute-Saone,Franche-Comte
+G1Q00002_SQ073,Haute-Savoie,Rhone-Alpes
+G1Q00002_SQ087,Haute-Vienne,Limousin
+G1Q00002_SQ005,Hautes-Alpes,Provence-Alpes-Cote d'Azur
+G1Q00002_SQ065,Hautes-Pyrenees,Midi-Pyrenees
+G1Q00002_SQ093,Hauts-de-Seine,Languedoc-Roussillon
+G1Q00002_SQ036,Herault,Ile-de-France
+G1Q00002_SQ035,Ille-et-Vilaine,Bretagne
+G1Q00002_SQ037,Indre,Centre
+G1Q00002_SQ038,Indre-et-Loire,Centre
+G1Q00002_SQ039,Isere,Rhone-Alpes
+G1Q00002_SQ040,Jura,Franche-Comte
+G1Q00002_SQ041,Landes,Aquitaine
+G1Q00002_SQ043,Loir-et-Cher,Centre
+G1Q00002_SQ042,Loire,Rhone-Alpes
+G1Q00002_SQ044,Loire-Atlantique,Pays de la Loire
+G1Q00002_SQ046,Loiret,Centre
+G1Q00002_SQ047,Lot,Midi-Pyrenees
+G1Q00002_SQ048,Lot-et-Garonne,Aquitaine
+G1Q00002_SQ049,Lozere,Languedoc-Roussillon
+G1Q00002_SQ050,Maine-et-Loire,Pays de la Loire
+G1Q00002_SQ051,Manche,Basse-Normandie
+G1Q00002_SQ052,Marne,Champagne-Ardenne
+G1Q00002_SQ055,Mayenne,Pays de la Loire
+G1Q00002_SQ054,Meurthe-et-Moselle,Lorraine
+G1Q00002_SQ056,Meuse,Lorraine
+G1Q00002_SQ058,Morbihan,Bretagne
+G1Q00002_SQ057,Moselle,Lorraine
+G1Q00002_SQ060,Nievre,Bourgogne
+G1Q00002_SQ059,Nord,Nord-Pas-de-Calais
+G1Q00002_SQ061,Oise,Picardie
+G1Q00002_SQ064,Orne,Basse-Normandie
+G1Q00002_SQ077,Paris,Ile-de-France
+G1Q00002_SQ063,Pas-de-Calais,Nord-Pas-de-Calais
+G1Q00002_SQ062,Puy-de-Dome,Auvergne
+G1Q00002_SQ066,Pyrenees-Atlantiques,Aquitaine
+G1Q00002_SQ067,Pyrenees-Orientales,Languedoc-Roussillon
+G1Q00002_SQ071,Rhone,Rhone-Alpes
+G1Q00002_SQ069,Saone-et-Loire,Bourgogne
+G1Q00002_SQ075,Sarthe,Pays de la Loire
+G1Q00002_SQ074,Savoie,Rhone-Alpes
+G1Q00002_SQ078,Seine-et-Marne,Ile-de-France
+G1Q00002_SQ076,Seine-Maritime,Haute-Normandie
+G1Q00002_SQ094,Seine-Saint-Denis,Ile-de-France
+G1Q00002_SQ080,Somme,Picardie
+G1Q00002_SQ082,Tarn,Midi-Pyrenees
+G1Q00002_SQ084,Tarn-et-Garonne,Midi-Pyrenees
+G1Q00002_SQ090,Territoire de Belfort,Franche-Comte
+G1Q00002_SQ097,Val-d'Oise,Ile-de-France
+G1Q00002_SQ095,Val-de-Marne,Ile-de-France
+G1Q00002_SQ083,Var,Provence-Alpes-Cote d'Azur
+G1Q00002_SQ085,Vaucluse,Provence-Alpes-Cote d'Azur
+G1Q00002_SQ086,Vendee,Pays de la Loire
+G1Q00002_SQ088,Vienne,Poitou-Charentes
+G1Q00002_SQ089,Vosges,Lorraine
+G1Q00002_SQ091,Yonne,Bourgogne
+G1Q00002_SQ079,Yvelines,Ile-de-France
