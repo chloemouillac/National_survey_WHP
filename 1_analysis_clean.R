@@ -36,14 +36,14 @@ departements <- read_sf("raw_data/departements_detail_paris.shp") %>%
 
 # A single, comprehensive data processing pipeline to avoid redundancy
 
-process_data_helper <- function(data, pattern_one, pattern_two, value_col_name) {
+process_data_helper_1 <- function(data, pattern_one, pattern_two, value_col_name) {
   data %>%
     select(id = id__ID_de_la_reponse, 
-           matches(paste0("^G\\d+Q000", "(?:0)?", "(", pattern_one, "|", pattern_two, ")_"))) %>% # careful of the number of zeroes after Q
+           matches(paste0("^G\\d+Q0*", c(pattern_one, pattern_two), "_", collapse = "|"))) %>%
+    mutate(across(-id, as.character)) %>%
     pivot_longer(
       cols = -id,
       names_to = "column_name",
-      # names_pattern = "^G(\\d+)Q000(?:0?)(\\d+)_",
       values_to = "value",
       values_drop_na = TRUE) %>%
     
@@ -64,16 +64,64 @@ process_data_helper <- function(data, pattern_one, pattern_two, value_col_name) 
     select(id, group, !!sym(value_col_name))
 }
 
+process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name) {
+  data %>%
+    select(id = id__ID_de_la_reponse, 
+           matches(paste0("^G\\d+Q0*", c(pattern_one, pattern_two), "_", collapse = "|"))) %>%
+    mutate(across(-id, as.character)) %>%
+    pivot_longer(
+      cols = -id,
+      names_to = "column_name",
+      values_to = "value",
+      values_drop_na = TRUE) %>%
+    
+    filter(!is.na(value)) %>%
+    
+    mutate(
+      group = str_extract(column_name, "(?<=^G)\\d+"),
+      qcode = as.numeric(str_extract(column_name, "(?<=Q0{3,4})\\d+")),
+      question = sub(
+        "^G\\d+Q\\d+(_SQ\\d+|__other)?_*", # Regex to match and remove the code and optional '_other'
+        "",                     # Replace with an empty string
+        column_name), 
+      
+      type = case_when(
+        group %in% c("3", "4") & qcode == pattern_one ~ value_col_name,
+        !(group %in% c("3", "4")) & qcode == pattern_two ~ value_col_name),
+      
+      type = ifelse(!is.na(type) & grepl("Autre", column_name), paste0(type, "_autre"), type),
+      
+      type = ifelse(!is.na(type) & grepl("SQ0", column_name), 
+                    paste0(type, "_", sub(".*____(.*?)", "\\1", question)),
+                                                   type),
+      
+      # Step to reduce multiple underscores to a single underscore
+      type = str_replace_all(type, "_{2,}", "_")) %>%
+  
+    filter(!is.na(type)) %>%
+    
+    pivot_wider(names_from = type,
+                values_from = value) %>%
+    
+    select(id, group, matches(value_col_name)) %>%
+    
+    # Step to remove columns that are entirely NA
+    select(where(~ any(!is.na(.))))
+  }
+
+
+
 process_all_data <- function(data) {
   # Columns related to species, departments, and harvester type
   species_cols <- data %>%
-    select(matches("^G(?:3|4|6|8|10|12|14|16|18|20)Q000(?:0)?(?:1|2|4|5|6|7|10|11|12|13|14|18|19|20|21|22|23|24)_")) # careful of the number of zeroes after Q
+    select(id__ID_de_la_reponse,
+           matches("^G(?:3|4|6|8|10|12|14|16|18|20)Q000(?:0)?(?:1|2|4|5|6|7|8|9|10|11|12|13|14|18|19|20|21|22|23|24)_")) # careful of the number of zeroes after Q
   
   df_long <- data %>%
     # Select all necessary columns at once
     select(id = id__ID_de_la_reponse,
            type_cueilleur = starts_with("G21Q00009_"),
-           all_of(colnames(species_cols))) %>%
+           colnames(species_cols)) %>%
     
     # Pivot to long format for easier manipulation
     pivot_longer(
@@ -110,9 +158,7 @@ process_all_data <- function(data) {
         group %in% c("3", "4") & qcode == "20" ~ "espece_reglem",
         !(group %in% c("3", "4")) & qcode == "22" ~ "espece_reglem",
         group %in% c("3", "4") & qcode == "21" ~ "reglem_adaptee",
-        !(group %in% c("3", "4")) & qcode == "23" ~ "reglem_adaptee",
-        group %in% c("3", "4") & qcode == "22" ~ "cause_reglem_inadaptee",
-        !(group %in% c("3", "4")) & qcode == "24" ~ "cause_reglem_inadaptee"),
+        !(group %in% c("3", "4")) & qcode == "23" ~ "reglem_adaptee"),
       
       
       # Determine durability status based on group
@@ -149,19 +195,25 @@ process_all_data <- function(data) {
     unique()
   
   
-  # Use the helper function to process 'parts collected' and 'uses'
-  df_parties_cueill <- process_data_helper(data, "6", "8", "parties_cueill")
-  df_usages <- process_data_helper(data, "7", "9", "usages")
-  # df_type_cueillette <- process_data_helper(data, "8", "10", "type_cueillette")
-  # df_type_entrep <- process_data_helper(data, "9", "11", "type_entrep")
-  df_risque <- process_data_helper(data, "17", "19", "risque")
+  # Use the helper function 1 to process collected parts, uses...
+  df_parties_cueill <- process_data_helper_1(species_cols, "6", "8", "parties_cueill")
+  df_usages <- process_data_helper_1(species_cols, "7", "9", "usages")
+  df_risque <- process_data_helper_1(species_cols, "17", "19", "risque")
+
+  
+  # Use the helper function 2 to process type of harvesting practise, company type...
+  df_type_cueillette <- process_data_helper_2(species_cols, "8", "10", "type_cueillette")
+  df_type_entrep <- process_data_helper_2(species_cols, "9", "11", "type_entrep")
+  df_cause_reglem_inadaptee <- process_data_helper_2(species_cols, "22", "24", "cause_reglem_inadaptee")
+  
   
   # Join the two data frames
   df_final <- left_join(df_long, df_parties_cueill, by = c("id", "group")) %>%
     left_join(df_usages, by = c("id", "group")) %>%
-    # left_join(df_type_cueillette, by = c("id", "group")) %>%
-    # left_join(type_entrep, by = c("id", "group")) %>%
     left_join(df_risque, by = c("id", "group")) %>%
+    left_join(df_type_cueillette, by = c("id", "group")) %>%
+    left_join(df_type_entrep, by = c("id", "group")) %>%
+    left_join(df_cause_reglem_inadaptee, by = c("id", "group")) %>%
     filter(species != "")
   
   return(df_final)
@@ -468,6 +520,7 @@ ggplot(df_all_data %>% filter(!is.na(presence)),
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+
 ##### Plot 2: Harvesting extent ####
 ggplot(df_all_data %>% filter(!is.na(etendue_cueill)), 
        aes(x = reorder(etendue_cueill, -table(etendue_cueill)[etendue_cueill]), fill = durabilite)) +
@@ -480,6 +533,7 @@ ggplot(df_all_data %>% filter(!is.na(etendue_cueill)),
   scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
 
 ##### Plot 3: Harvested parts ####
 ggplot(df_all_data %>% filter(!is.na(parties_cueill)), 
@@ -494,6 +548,7 @@ ggplot(df_all_data %>% filter(!is.na(parties_cueill)),
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+
 ##### Plot 4: Harvesting uses ####
 ggplot(df_all_data %>% filter(!is.na(usages)), 
        aes(x = reorder(usages, -table(usages)[usages]), fill = durabilite)) +
@@ -507,7 +562,65 @@ ggplot(df_all_data %>% filter(!is.na(usages)),
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
-##### Plot 5: Start of observation ####
+
+##### Plot 5: Harvesting type (professional/ local) ####
+df_type_cueillette <- df_all_data %>%
+  select(id, species, type_cueillette_Cueillette_amatrice_familiale, type_cueillette_Cueillette_professionnelle, durabilite) %>%
+  unique() %>%
+  pivot_longer(cols = c(type_cueillette_Cueillette_amatrice_familiale, type_cueillette_Cueillette_professionnelle),
+               names_to= "type_cueillette",
+               values_drop_na = T) %>%
+  mutate(type_cueillette = sub("type_cueillette_", "", type_cueillette)) %>%
+  group_by(type_cueillette, value, durabilite) %>%
+  summarise(count=n())
+
+ggplot(df_type_cueillette, 
+       aes(x = value,
+           y = count,
+           fill = durabilite)) +
+  geom_col() + facet_grid(.~type_cueillette) +
+  labs(
+    title = "How would you describe the harvesting of this species ?",
+    y = "Number of responses",
+    x = ""
+  ) +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+##### Plot 6: Type of companies ####
+df_type_entrep <- df_all_data %>%
+  select(id, species, type_entrep_Microentreprises_lt_10_salaries, 
+         type_entrep_PME_10_50_salaries,
+         type_entrep_Grandes_entreprises_gt_50_salaries,
+         durabilite) %>%
+  unique() %>%
+  pivot_longer(cols = c(type_entrep_Microentreprises_lt_10_salaries, 
+                        type_entrep_PME_10_50_salaries,
+                        type_entrep_Grandes_entreprises_gt_50_salaries),
+               names_to= "type_entrep",
+               values_drop_na = T) %>%
+  mutate(type_entrep = sub("type_entrep_", "", type_entrep)) %>%
+  group_by(type_entrep, value, durabilite) %>%
+  summarise(count=n())
+
+ggplot(df_type_entrep, 
+       aes(x = value,
+           y = count,
+           fill = durabilite)) +
+  geom_col() + facet_grid(.~type_entrep) +
+  labs(
+    title = "What type of companies are professional harvests intended for ?",
+    y = "Number of responses",
+    x = ""
+  ) +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+##### Plot 7: Start of observation ####
 ggplot(df_all_data %>% filter(!is.na(debut_obs)) %>%
          mutate(debut_obs = as.numeric(debut_obs)), 
        aes(x = reorder(debut_obs, -table(debut_obs)[debut_obs]))) +
@@ -521,7 +634,7 @@ ggplot(df_all_data %>% filter(!is.na(debut_obs)) %>%
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 6: State of resource ####
+##### Plot 8: State of resource ####
 ggplot(df_all_data %>% filter(!is.na(etat_ressource)), 
        aes(x = reorder(etat_ressource, -table(etat_ressource)[etat_ressource]), fill = durabilite)) +
   geom_bar() +
@@ -535,7 +648,7 @@ ggplot(df_all_data %>% filter(!is.na(etat_ressource)),
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 7: Variation of harvesting intensity ####
+##### Plot 9: Variation of harvesting intensity ####
 ggplot(df_all_data %>% filter(!is.na(variation_prelev)), 
        aes(x = reorder(variation_prelev, -table(variation_prelev)[variation_prelev]), fill = durabilite)) +
   geom_bar() +
@@ -549,7 +662,7 @@ ggplot(df_all_data %>% filter(!is.na(variation_prelev)),
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 8: Harvesting intensity ####
+##### Plot 10: Harvesting intensity ####
 ggplot(df_all_data %>% filter(!is.na(intensite_prelev)), 
        aes(x = reorder(intensite_prelev, -table(intensite_prelev)[intensite_prelev]), fill = durabilite)) +
   geom_bar() +
@@ -563,7 +676,7 @@ ggplot(df_all_data %>% filter(!is.na(intensite_prelev)),
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 9: Risk factors ####
+##### Plot 11: Risk factors ####
 ggplot(df_all_data %>% filter(!is.na(risque)), 
        aes(x = reorder(risque, -table(risque)[risque]))) +
   geom_bar() +
@@ -576,7 +689,7 @@ ggplot(df_all_data %>% filter(!is.na(risque)),
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 10: Trend effect ####
+##### Plot 12: Trend effect ####
 ggplot(df_all_data %>% filter(!is.na(mode)), 
        aes(x = reorder(mode, -table(mode)[mode]), fill = durabilite)) +
   geom_bar() +
@@ -590,7 +703,7 @@ ggplot(df_all_data %>% filter(!is.na(mode)),
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 11: Trend effect : a risk factor for unsustainable harvesting ####
+##### Plot 13: Trend effect : a risk factor for unsustainable harvesting ####
 ggplot(df_all_data %>% filter(!is.na(mode_risque)), 
        aes(x = reorder(mode_risque, -table(mode_risque)[mode_risque]), fill = durabilite)) +
   geom_bar() +
@@ -604,7 +717,7 @@ ggplot(df_all_data %>% filter(!is.na(mode_risque)),
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-##### Plot 12: Regulations ####
+##### Plot 14: Regulations ####
 ggplot(df_all_data %>% filter(!is.na(espece_reglem)), 
        aes(x = reorder(espece_reglem, -table(espece_reglem)[espece_reglem]), fill = durabilite)) +
   geom_bar() +
@@ -640,3 +753,13 @@ ggplot(df_all_data %>% filter(!is.na(cause_reglem_inadaptee)),
   scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+
+
+
+
+
+#### Bar Plots: harvester profiles ####
