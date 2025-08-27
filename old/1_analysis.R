@@ -6,6 +6,7 @@ library(tidyr)
 library(stringr)
 library(sf)
 library(cowplot)
+library(patchwork)
 
 #### Import data ####
 raw_data <- read.csv(here::here("raw_data/results-survey676868_prefilter.csv"))
@@ -50,7 +51,7 @@ raw_data_national <- raw_data %>%
     id__ID_de_la_réponse,
     G1Q00001__À_quelle_échelle_spatiale_vous_situez_vous)
 
-
+n_national_answers <- n_distinct(raw_data_national$id__ID_de_la_réponse)
 
 answers_per_dpt <- raw_data_departements %>%
   filter(G1Q00001__À_quelle_échelle_spatiale_vous_situez_vous == "Départemental") %>%
@@ -187,7 +188,7 @@ plot_durability_bar <- function(data, species_prefix, durability_flag = "Oui", t
   df$type_cueilleur <- word(df$type_cueilleur, 1, 2)
   
   # pivot longer for species columns
-  df_long <- df %>%
+  df_durability <- df %>%
     pivot_longer(
       cols = -c(id__ID_de_la_réponse, type_cueilleur),
       names_to = c("group", ".value"),
@@ -205,7 +206,7 @@ plot_durability_bar <- function(data, species_prefix, durability_flag = "Oui", t
     filter(species != "")
   
   # plot
-  ggplot(df_long, aes(x = reorder(species, -table(species)[species]))) +
+  ggplot(df_durability, aes(x = reorder(species, -table(species)[species]))) +
     geom_bar(aes(fill = type_cueilleur)) +
     labs(
       title = title,
@@ -303,7 +304,6 @@ ggplot(all_species_dpts) +
 
 plot_durability_pro_bar <- function(data) {
   
-  # ---- Data processing (same as before) ----
   df_g3 <- data %>%
     select(id__ID_de_la_réponse, starts_with("G3Q00001_"),
            type_cueilleur = starts_with("G21Q00009_")) %>%
@@ -397,157 +397,397 @@ plot_durability_pro_bar(raw_data)
 
 
 #### Map durable/non durable citings for a single species ####
+# Full data processing to get global max values
+df_g3 <- raw_data %>%
+  select(id__ID_de_la_réponse, starts_with("G3Q00001_"),
+         type_cueilleur = starts_with("G21Q00009_")) %>%
+  pivot_longer(cols = starts_with("G3Q00001_"), names_to = "species", values_to = "val") %>%
+  filter(!is.na(val) & val != "") %>%
+  separate_rows(val, sep = ",\\s*") %>%
+  mutate(durability = "Durable", species = str_trim(val), group = "G4")%>%
+  select(-val)
+
+df_g4 <- raw_data %>%
+  select(id__ID_de_la_réponse, starts_with("G4Q00001_"),
+         type_cueilleur = starts_with("G21Q00009_")) %>%
+  pivot_longer(cols = starts_with("G4Q00001_"), names_to = "species", values_to = "val") %>%
+  filter(!is.na(val) & val != "") %>%
+  separate_rows(val, sep = ",\\s*") %>%
+  mutate(durability = "Non durable", species = str_trim(val), group = "G4")%>%
+  select(-val)
+
+df_other <- raw_data %>%
+  select(
+    id__ID_de_la_réponse,
+    matches("^G(6|8|10|12|14|16|18|20)Q0000[12]_"),
+    type_cueilleur = starts_with("G21Q00009_")
+  ) %>%
+  pivot_longer(
+    cols = -c(id__ID_de_la_réponse, type_cueilleur),
+    names_to = c("group", "coltype"),
+    names_pattern = "(G\\d+)Q0000(\\d).*",
+    values_drop_na = TRUE
+  ) %>%
+  pivot_wider(names_from = coltype, values_from = value) %>%
+  filter(!is.na(`1`) & `1` != "") %>%
+  separate_rows(`1`, sep = ",\\s*") %>%
+  mutate(
+    species = str_trim(`1`),
+    durability = ifelse(`2` == "Oui", "Durable", "Non durable")
+  ) %>%
+  select(id__ID_de_la_réponse, species, durability, type_cueilleur, group)
+
+df_dpts <- raw_data %>%
+  select(id__ID_de_la_réponse,
+         matches("^G(3|4|6|8|10|12|14|16|18|20)Q0000[124]_")) %>%
+  pivot_longer(
+    cols = -id__ID_de_la_réponse,
+    names_to = c("group", "qcode"),
+    names_pattern = "(G\\d+)Q0000(\\d).*",
+    values_to = "value") %>%
+  na.omit() %>%
+  mutate(type = case_when(
+    qcode == "1" ~ "species",
+    group %in% c("G3", "G4") & qcode == "2" ~ "dpt",
+    !(group %in% c("G3", "G4")) & qcode == "4" ~ "dpt")) %>%
+  filter(!is.na(type)) %>%
+  select(-qcode) %>%
+  pivot_wider(
+    names_from = type,
+    values_from = value) %>%
+  separate_rows(species, sep = ",\\s*") %>%
+  mutate(species = str_trim(species),
+         dpt = str_replace_all(dpt, "\\s*\\(.*\\)", "")) %>%
+  unique()
+
+df_all_species <- bind_rows(df_g3, df_g4, df_other) %>%
+  inner_join(df_dpts, by = c("id__ID_de_la_réponse", "species", "group"))
+
+citations_all <- df_all_species %>%
+  group_by(dpt, species, durability) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = durability,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(
+    Total_Citations = Durable + `Non durable`,
+  )
+
+# Get the global max for each metric
+global_max_total <- max(citations_all$Total_Citations, na.rm = TRUE)
+
 
 plot_species_map <- function(raw_data, departements, species_name) {
-    
-    # ---- 1. Data Processing to combine species, durability, and dpt information ----
-    
-    # Process G3 data for durable species
-    df_g3 <- raw_data %>%
-      select(id__ID_de_la_réponse, starts_with("G3Q00001_")) %>%
-      pivot_longer(cols = starts_with("G3Q00001_"), names_to = "species", values_to = "val") %>%
-      filter(!is.na(val) & val != "") %>%
-      separate_rows(val, sep = ",\\s*") %>%
-      mutate(durability = "Durable", species = str_trim(val), group = "G3") %>%
-      select(-val)
-    
-    # Process G4 data for non-durable species
-    df_g4 <- raw_data %>%
-      select(id__ID_de_la_réponse, starts_with("G4Q00001_")) %>%
-      pivot_longer(cols = starts_with("G4Q00001_"), names_to = "species", values_to = "val") %>%
-      filter(!is.na(val) & val != "") %>%
-      separate_rows(val, sep = ",\\s*") %>%
-      mutate(durability = "Non durable", species = str_trim(val), group = "G4") %>%
-      select(-val)
-    
-    # Process "other" data for both durable and non-durable species
-    df_other <- raw_data %>%
-      select(
-        id__ID_de_la_réponse,
-        matches("^G(6|8|10|12|14|16|18|20)Q0000[12]_")
-      ) %>%
-      pivot_longer(
-        cols = -id__ID_de_la_réponse,
-        names_to = c("group", "coltype"),
-        names_pattern = "(G\\d+)Q0000(\\d).*",
-        values_drop_na = TRUE
-      ) %>%
-      pivot_wider(names_from = coltype, values_from = value) %>%
-      filter(!is.na(`1`) & `1` != "") %>%
-      separate_rows(`1`, sep = ",\\s*") %>%
-      mutate(
-        species = str_trim(`1`),
-        durability = ifelse(`2` == "Oui", "Durable", "Non durable")
-      ) %>%
-      select(id__ID_de_la_réponse, species, durability, group)
-    
-    # Combine all species data into one dataframe
-    df_long <- bind_rows(df_g3, df_g4, df_other)
-    
-    # Get the department for each citation ID
-    df_dpts <- raw_data %>%
-      select(id__ID_de_la_réponse,
-             matches("^G(3|4|6|8|10|12|14|16|18|20)Q0000[124]_")) %>%
-      pivot_longer(
-        cols = -id__ID_de_la_réponse,
-        names_to = c("group", "qcode"),
-        names_pattern = "(G\\d+)Q0000(\\d).*",
-        values_to = "value") %>%
-      na.omit() %>%
-      mutate(type = case_when(
-        qcode == "1" ~ "species",
-        group %in% c("G3", "G4") & qcode == "2" ~ "dpt",
-        !(group %in% c("G3", "G4")) & qcode == "4" ~ "dpt")) %>%
-      filter(!is.na(type)) %>%
-      select(-qcode) %>%
-      pivot_wider(
-        names_from = type,
-        values_from = value) %>%
-      separate_rows(species, sep = ",\\s*") %>%
-      mutate(species = str_trim(species),
-             dpt = str_replace_all(dpt, "\\s*\\(.*\\)", "")) %>%
-      unique()
-    
-    # Join species/durability data with department data
-    df_full <- df_long %>%
-      inner_join(df_dpts, by = c("id__ID_de_la_réponse", "species", "group")) %>%
-      filter(species == species_name)
-    
-    # ---- 2. Summarise and create two separate plots ----
-    
-    # Summarise data to calculate total citations and proportion of non-durable
-    citations_wide <- df_full %>%
-      group_by(dpt, durability) %>%
-      summarise(n = n(), .groups = "drop") %>%
-      pivot_wider(
-        names_from = durability,
-        values_from = n,
-        values_fill = 0
-      ) %>%
-      mutate(
-        Total_Citations = Durable + `Non durable`,
-        Prop_Non_Durable = `Non durable` / Total_Citations * 100
-      )
-    
-    # Join with spatial data for plotting
-    map_data <- departements %>%
-      inner_join(citations_wide, by = "dpt") %>%
-      st_as_sf()
-    
-    # Create the total citations plot
-    plot_total <- ggplot(map_data) +
-      geom_sf(aes(fill = Total_Citations), color = "white", size = 0.2) +
-      geom_sf_text(aes(label = Total_Citations), color = "black", size = 3) +
-      scale_fill_distiller(palette = "Blues", direction=1) +
-      theme_void() +
-      labs(
-        title = "Total citations",
-        fill = "Number of citations"
-      ) +
-      theme(
-        plot.title = element_text(hjust = 0.5, face = "bold"),
-        legend.position = "bottom"
-      )
-    
-    # Create the proportion non-durable plot
-    plot_prop <- ggplot(map_data) +
-      geom_sf(aes(fill = Prop_Non_Durable), color = "white", size = 0.2) +
-      geom_sf_text(aes(label = paste0(round(Prop_Non_Durable, 1), "%")), color = "black", size = 3) +
-      scale_fill_distiller(palette = "Reds", direction=1) +
-      theme_void() +
-      labs(
-        title = "Proportion non-durable",
-        fill = "Percentage"
-      ) +
-      theme(
-        plot.title = element_text(hjust = 0.5, face = "bold"),
-        legend.position = "bottom"
-      )
-    
-    # Combine the two plots
-    combined_plot <- plot_grid(
-      plot_total, 
-      plot_prop, 
-      align = "h", 
-      labels = paste("Citations for", species_name, "by department"),
-      label_size = 16,
-      label_fontface = "bold",
-      nrow = 1
+  
+  # ---- 1. Data Processing to combine species, durability, and dpt information ----
+  
+  # Process G3 data for durable species
+  df_g3 <- raw_data %>%
+    select(id__ID_de_la_réponse, starts_with("G3Q00001_")) %>%
+    pivot_longer(cols = starts_with("G3Q00001_"), names_to = "species", values_to = "val") %>%
+    filter(!is.na(val) & val != "") %>%
+    separate_rows(val, sep = ",\\s*") %>%
+    mutate(durability = "Durable", species = str_trim(val), group = "G3") %>%
+    select(-val)
+  
+  # Process G4 data for non-durable species
+  df_g4 <- raw_data %>%
+    select(id__ID_de_la_réponse, starts_with("G4Q00001_")) %>%
+    pivot_longer(cols = starts_with("G4Q00001_"), names_to = "species", values_to = "val") %>%
+    filter(!is.na(val) & val != "") %>%
+    separate_rows(val, sep = ",\\s*") %>%
+    mutate(durability = "Non durable", species = str_trim(val), group = "G4") %>%
+    select(-val)
+  
+  # Process "other" data for both durable and non-durable species
+  df_other <- raw_data %>%
+    select(
+      id__ID_de_la_réponse,
+      matches("^G(6|8|10|12|14|16|18|20)Q0000[12]_")
+    ) %>%
+    pivot_longer(
+      cols = -id__ID_de_la_réponse,
+      names_to = c("group", "coltype"),
+      names_pattern = "(G\\d+)Q0000(\\d).*",
+      values_drop_na = TRUE
+    ) %>%
+    pivot_wider(names_from = coltype, values_from = value) %>%
+    filter(!is.na(`1`) & `1` != "") %>%
+    separate_rows(`1`, sep = ",\\s*") %>%
+    mutate(
+      species = str_trim(`1`),
+      durability = ifelse(`2` == "Oui", "Durable", "Non durable")
+    ) %>%
+    select(id__ID_de_la_réponse, species, durability, group)
+  
+  # Combine all species data into one dataframe
+  df_long <- bind_rows(df_g3, df_g4, df_other)
+  
+  # Get the department for each citation ID
+  df_dpts <- raw_data %>%
+    select(id__ID_de_la_réponse,
+           matches("^G(3|4|6|8|10|12|14|16|18|20)Q0000[124]_")) %>%
+    pivot_longer(
+      cols = -id__ID_de_la_réponse,
+      names_to = c("group", "qcode"),
+      names_pattern = "(G\\d+)Q0000(\\d).*",
+      values_to = "value") %>%
+    na.omit() %>%
+    mutate(type = case_when(
+      qcode == "1" ~ "species",
+      group %in% c("G3", "G4") & qcode == "2" ~ "dpt",
+      !(group %in% c("G3", "G4")) & qcode == "4" ~ "dpt")) %>%
+    filter(!is.na(type)) %>%
+    select(-qcode) %>%
+    pivot_wider(
+      names_from = type,
+      values_from = value) %>%
+    separate_rows(species, sep = ",\\s*") %>%
+    mutate(species = str_trim(species),
+           dpt = str_replace_all(dpt, "\\s*\\(.*\\)", "")) %>%
+    unique()
+  
+  # Join species/durability data with department data
+  df_full <- df_long %>%
+    inner_join(df_dpts, by = c("id__ID_de_la_réponse", "species", "group")) %>%
+    filter(species == species_name)
+  
+  # ---- 2. Summarise and create two separate plots ----
+  
+  # Summarise data to calculate total citations and proportion of non-durable
+  citations_wide <- df_full %>%
+    group_by(dpt, durability) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    pivot_wider(
+      names_from = durability,
+      values_from = n,
+      values_fill = 0
     )
-    
-    return(combined_plot)
+  
+  # Ensure 'Durable' and 'Non durable' columns exist before calculations
+  if (!"Durable" %in% names(citations_wide)) {
+    citations_wide$Durable <- 0
   }
+  if (!"Non durable" %in% names(citations_wide)) {
+    citations_wide$`Non durable` <- 0
+  }
+  
+  citations_wide <- citations_wide %>%
+    mutate(
+      Total_Citations = Durable + `Non durable`,
+      Prop_Non_Durable = ifelse(Total_Citations > 0, 
+                                round(`Non durable` / Total_Citations * 100,2), 0)
+    )
+  
+  # Join with spatial data for plotting
+  map_data <- departements %>%
+    left_join(citations_wide, by = "dpt") %>%
+    st_as_sf()
+  
+  # Create the total citations plot
+  plot_total <- ggplot(map_data) +
+    geom_sf(aes(fill = Total_Citations), color = "white", size = 0.2) +
+    geom_sf_text(aes(label = Total_Citations), color = "black", size = 3) +
+    scale_fill_distiller(
+      palette = "Blues", 
+      direction = 1, 
+      na.value = "grey80",
+      limits = c(0, global_max_total), # Use the common maximum value
+      oob = scales::squish # Handles values outside the limit
+    ) +
+    theme_void() +
+    labs(
+      title = "Total citations",
+      fill = "Number of citations"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  # Create the proportion non-durable plot
+  plot_prop <- ggplot(map_data) +
+    geom_sf(aes(fill = Prop_Non_Durable), color = "white", size = 0.2) +
+    geom_sf_text(
+      data = subset(map_data, !is.na(Prop_Non_Durable)),
+      aes(label = paste0(Prop_Non_Durable, "%")),
+      color = "black", size = 3
+    ) +
+    scale_fill_distiller(
+      palette = "Reds", 
+      direction = 1, 
+      na.value = "grey80",
+      limits = c(0, 100), # Use the common maximum value
+      oob = scales::squish # Handles values outside the limit
+    ) +
+    theme_void() +
+    labs(
+      title = "Proportion non-durable",
+      fill = "Percentage"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  
+  # Combine the two plots
+  combined_plot <- plot_grid(
+    plot_total,
+    plot_prop,
+    align = "h",
+    labels = paste("Citations for", species_name, "by department"),
+    label_size = 16,
+    label_fontface = "bold",
+    nrow = 1
+  )
+  
+  return(combined_plot)
+}
 
 plot_species_map(raw_data, departements, "Allium ursinum")
 plot_species_map(raw_data, departements, "Arnica montana")
 plot_species_map(raw_data, departements, "Gentiana lutea")
 plot_species_map(raw_data, departements, "Thymus vulgaris")
-plot_species_map(raw_data, departements, "Euphorbia spinosa") ## pas de nurable
+plot_species_map(raw_data, departements, "Euphorbia spinosa") ## pas de durable
 plot_species_map(raw_data, departements, "Artemisia umbelliformis")
 plot_species_map(raw_data, departements, "Sambucus nigra")
 plot_species_map(raw_data, departements, "Vaccinium myrtillus")
 plot_species_map(raw_data, departements, "Filipendula ulmaria")
 plot_species_map(raw_data, departements, "Narcissus pseudonarcissus")
 
+
+
+#### Specific questions species ####
+# Data preparation
+df_all <- raw_data %>%
+  # Select all necessary columns at once
+  select(id__ID_de_la_réponse,
+         type_cueilleur = starts_with("G21Q00009_"),
+         matches("^G(3|4|6|8|10|12|14|16|18|20)Q0000(1|2|4|5|6|7)_")) %>%
+  
+  # Pivot to long format for easier manipulation
+  pivot_longer(
+    cols = -c(id__ID_de_la_réponse, type_cueilleur),
+    names_to = c("group", "qcode"),
+    names_pattern = "^G(\\d+)Q0000(\\d)_",
+    values_to = "value",
+    values_drop_na = TRUE
+  ) %>%
+  
+  # Classify values by type (species, presence, etendue_cueill, durability)
+  mutate(
+    type = case_when(
+      qcode == "1" ~ "species",
+      group %in% c("3", "4") & qcode == "4" ~ "presence",
+      !(group %in% c("3", "4")) & qcode == "6" ~ "presence",
+      group %in% c("3", "4") & qcode == "5" ~ "etendue_cueill",
+      !(group %in% c("3", "4")) & qcode == "7" ~ "etendue_cueill",
+      group %in% c("3", "4") & qcode == "2" ~ "dpt",
+      !(group %in% c("3", "4")) & qcode == "4" ~ "dpt"),
+    durability = case_when(
+      group %in% c("3", "4") ~ ifelse(group == "3", "Durable", "Non durable"),
+      !(group %in% c("3", "4")) ~ ifelse(value == "Oui", "Durable", "Non durable")
+    )
+  ) %>%
+  
+  # Filter out irrelevant rows and select key columns
+  filter(!is.na(type)) %>%
+  select(-qcode) %>%
+  
+  # Pivot wider to get species, presence, and etendue_cueill in columns
+  pivot_wider(
+    names_from = type,
+    values_from = value,
+    values_fn = list
+  ) %>%
+  
+  # Clean and process species and type_cueilleur
+  separate_rows(species, sep = ",\\s*") %>%
+  mutate(
+    species = str_trim(species),
+    type_cueilleur = word(type_cueilleur, 1, 2)
+  ) %>%
+  
+  unnest(everything()) %>%
+  
+  # Filter out empty species
+  filter(species != "")
+
+
+# PART 2: Process `parties_cueill` columns separately
+df_parts_collected <- raw_data %>%
+  select(id__ID_de_la_réponse, matches("Q0000(6|8)_")) %>%
+  pivot_longer(
+    cols = -id__ID_de_la_réponse,
+    names_to = "column_name",
+    values_to = "value",
+    values_drop_na = TRUE
+  ) %>%
+  filter(value == "Oui") %>%
+  mutate(
+    group = str_extract(column_name, "(?<=^G)\\d+"),
+    # This regex removes everything up to the final "__"
+    parties_cueill = str_remove(column_name, ".*__"),
+    # Convert to sentence case and remove underscores
+    parties_cueill = str_to_sentence(str_replace_all(parties_cueill, "_", " "))
+  ) %>%
+  select(id__ID_de_la_réponse, group, parties_cueill)
+
+# PART 3: Join the two datasets
+df_final <- left_join(df_all, df_parts_collected, by = c("id__ID_de_la_réponse", "group")) %>%
+  mutate(
+    type_cueilleur = word(type_cueilleur, 1, 2)
+  )
+
+
+##### Plot 1: Presence ####
+# Plot the data using the pre-calculated counts
+ggplot(df_all, aes(x = reorder(presence, -table(presence)[presence]),
+                   fill = durability)) +
+  geom_bar() +
+  labs(
+    title = "Quelle est la présence de cette espèce à l'échelle du département ?",
+    y = "Nombre de réponses",
+    x = ""
+  ) +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+##### Plot 2: Harvesting extent ####
+df_harv_ext <- df_final %>%
+  filter(!is.na(etendue_cueill))
+
+ggplot(df_harv_ext, aes(x = reorder(etendue_cueill, -table(etendue_cueill)[etendue_cueill]), fill = durability)) +
+  geom_bar() +
+  labs(
+    title = "Comment caractérisez vous l'étendue de la cueillette de cette espèce ?",
+    y = "Nombre de réponses",
+    x = ""
+  ) +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+##### Plot 3: Harvested parts ####
+df_harv_parts <- df_final %>%
+  filter(!is.na(parties_cueill))
+
+ggplot(df_harv_parts, aes(x = reorder(parties_cueill, -table(parties_cueill)[parties_cueill]), 
+                          fill = durability)) +
+  geom_bar() +
+  labs(
+    title = "Quelles parties de cette espèce sont collectées ?",
+    y = "Nombre de réponses",
+    x = ""
+  ) +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
