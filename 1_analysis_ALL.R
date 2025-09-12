@@ -523,6 +523,8 @@ plot_species_map <- function(species_name) {
   )
 }
 
+plot_species_map("Urtica dioica")
+
 plot_species_map("Allium ursinum")
 plot_species_map("Arnica montana")
 plot_species_map("Gentiana lutea")

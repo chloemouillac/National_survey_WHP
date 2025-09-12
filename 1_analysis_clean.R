@@ -10,6 +10,7 @@ library(FactoMineR)
 library(factoextra)
 library(ggpubr)
 library(rstatix)
+library(ade4)
 
 #### Import data ####
 raw_data <- read.csv("raw_data/results-survey676868_prefilter.csv")
@@ -29,17 +30,70 @@ departements <- read_sf("raw_data/departements_detail_paris.shp") %>%
 taxref <-  read.delim("raw_data/TAXREF_v17_2024/TAXREFv17.txt") %>%
   subset((GROUP1_INPN=="Trachéophytes") &
            (REGNE=="Plantae") &
-           # (CD_REF==CD_NOM) &
+           (CD_REF==CD_NOM) &
            (RANG=="ES"),
-         select=c(CD_REF, CD_NOM, LB_NOM)) %>%
+         select=c(CD_REF, LB_NOM)) %>%
   unique()
 
-all_rarity <-  read.csv("raw_data/OpenObs+GBIF_RARITY_20km.csv")
+all_rarity <-  read.csv("raw_data/OpenObs+GBIF_RARITY_20km.csv") %>%
+  select(CD_REF, dpt_name, sp_relative_area) %>%
+  mutate(dpt_simple =  str_replace_all(dpt_name, "[-']", " "),
+         dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"))
 
 raunkieaer <- read.csv("raw_data/Raunkieaer_data_REVIEWED_WHP.csv") %>%
   select(CD_REF, choix_type_bio) %>%
   unique()
-  
+
+# accspecies_id <- read.csv("raw_data/list_species_TRY_French_Flora.csv")
+csr_already_calc <- read.csv("raw_data/CSR_calculations_ALL.csv") %>%
+  select(CD_REF, C, S, R, strategy_class) %>%
+  mutate(csr_simple = str_split_i(strategy_class, "/", 1)) %>%
+  select(-strategy_class)
+
+
+#### Cluster of departements ####
+clusters <- read.csv("raw_data/7clusters_chisq_no_transfo_20.csv")
+
+departements_simpl_PARIS <- departements %>%
+  # Create a grouping variable: "IDF" for Ile-de-France, and the original "code" for others
+  mutate(group = if_else(region == "Ile-de-France", "IDF", code)) %>%
+  # Group the data by the new "group" variable
+  group_by(group) %>%
+  # Summarize the data by fusing geometries and assigning new values for Ile-de-France
+  summarize(
+    # Fused geometry for "IDF" and original geometry for others
+    geometry = st_union(geometry),
+    
+    # Assign new values for the grouped rows
+    # The 'first' function is used to pick the first value in each group,
+    # which is the original department code for all non-IDF regions
+    code = first(if_else(group == "IDF", "IDF", code)),
+    dpt = first(if_else(group == "IDF", "Ile-de-France", dpt)),
+    dpt_simple = first(if_else(group == "IDF", "Ile de France", dpt_simple)),
+    region_simple = first(if_else(group == "IDF", "Ile de France", region_simple))
+  ) %>%
+  # Remove the "group" variable created for the aggregation
+  select(-group)
+
+departements_clus <- full_join(departements_simpl_PARIS, clusters, 
+                               by=join_by("code"=="departement"))
+
+departements_clus$clus_ward_cut <- as.factor(departements_clus$clus_ward_cut)
+
+
+plot_clus <- ggplot() +
+  geom_sf(data = departements_clus, 
+          aes(fill=clus_ward_cut), colour="white")+
+  ggtitle(label="Clustering") +
+  scale_fill_manual(name="Cluster", values=c('#117733','#CC6677','#44AA99','#DDCC77','#332288','#88CCEE', '#882255','#AA4499',"black",'#999933')) +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.background = element_blank())
+
+plot_clus
+
 
 #### Prepare main data frame ####
 
@@ -214,7 +268,8 @@ process_all_species_data <- function(data) {
         dpt %in% c("Essonne", "Hauts-de-Seine", "Paris", "Seine-Saint-Denis", "Seine-et-Marne", "Val-d'Oise", "Val-de-Marne", "Yvelines"),
         "Ile-de-France",
         dpt
-      )
+      ),
+      dpt = str_replace_all(dpt, "[-']", " ")
     )
 
 
@@ -327,9 +382,7 @@ process_all_profile_data <- function(data) {
 
 df_all_profile_data <-  process_all_profile_data(raw_data)
 
-
-#### Multivariate : plant species profiles ####
-##### Prepare data ####
+##### Join species and profile data ####
 # Add prefixes to columns (except id)
 df_profile_renamed <- df_all_profile_data %>%
   rename_with(~ paste0("PROFIL_", .), -id)
@@ -338,10 +391,10 @@ df_species_renamed <- df_all_species_data %>%
   rename_with(~ paste0("ESPECE_", .), -id)
 
 # Full join
-all_data <- full_join(df_profile_renamed, df_species_renamed, by = "id")
-
-# Standardise text categories in one go
-all_data <- all_data %>%
+all_data <- df_profile_renamed %>%
+  full_join(df_species_renamed, by = "id") %>%
+  
+  # Simplify categories
   mutate(
     ESPECE_usages = case_when(
       str_detect(ESPECE_usages, "Alimentaire") ~ "Alimentaire",
@@ -357,22 +410,16 @@ all_data <- all_data %>%
       TRUE ~ ESPECE_parties_cueill
     ),
     ESPECE_mode = recode(ESPECE_mode, "Oui" = "Mode", "Non" = "Pas de mode"),
-    ESPECE_mode_risque = recode(ESPECE_mode_risque,
-                                "Oui" = "Mode et risque",
-                                "Non" = "Mode sans risque"),
-    ESPECE_espece_reglem = recode(ESPECE_espece_reglem,
-                                  "Oui" = "Oui",
-                                  "Non" = "Non"),
+    ESPECE_mode_risque = recode(ESPECE_mode_risque, "Oui" = "Mode et risque", "Non" = "Mode sans risque"),
     PROFIL_statut_cueilleur = case_when(
-      str_detect(PROFIL_statut_cueilleur, "loisir")   ~ "Amateur",
-      str_detect(PROFIL_statut_cueilleur, "revenus")  ~ "Professionnel",
+      str_detect(PROFIL_statut_cueilleur, "loisir")  ~ "Amateur",
+      str_detect(PROFIL_statut_cueilleur, "revenus") ~ "Professionnel",
       TRUE ~ PROFIL_statut_cueilleur
     ),
-    # Replace NA in PROFIL_nb_esp_cueill with 0
-    PROFIL_nb_esp_cueill = if_else(is.na(PROFIL_nb_esp_cueill), "0", PROFIL_nb_esp_cueill)
-  ) %>%
+    # Replace NA in PROFIL_nb_esp_cueill with 0 
+    PROFIL_nb_esp_cueill = if_else(is.na(PROFIL_nb_esp_cueill), "0", PROFIL_nb_esp_cueill)) %>%
   
-  # Apply recoding for variable/stable/etc. patterns
+  # Pattern-based recoding (variable/stable/etc.)
   mutate(across(-id, ~ case_when(
     str_detect(., "variable") ~ "Variable",
     str_detect(., "stable")   ~ "Stable",
@@ -381,21 +428,19 @@ all_data <- all_data %>%
     TRUE ~ .
   ))) %>%
   
-  # Adjust ESPECE_mode with ESPECE_mode_risque, drop redundant col
-  mutate(ESPECE_mode = if_else(ESPECE_mode == "Mode", ESPECE_mode_risque, ESPECE_mode)) %>%
-  select(-ESPECE_mode_risque) %>%
+  # Merge ESPECE_mode and risk
+  mutate(
+    ESPECE_mode = if_else(ESPECE_mode == "Mode", ESPECE_mode_risque, ESPECE_mode),
+    PROFIL_statut_cueilleur = if_else(PROFIL_cueilleur == "Oui", PROFIL_statut_cueilleur, "Non cueilleur")
+  ) %>%
+  select(-c(ESPECE_mode_risque, PROFIL_cueilleur)) %>%
   
-  # Cueilleur status refinement
-  mutate(PROFIL_statut_cueilleur = if_else(PROFIL_cueilleur == "Oui",
-                                           PROFIL_statut_cueilleur,
-                                           "Non cueilleur")) %>%
-  select(-PROFIL_cueilleur) %>%
+  # Text cleaning
+  mutate(across(everything(), ~ .x %>%
+                  str_replace("Je ne sais pas", "JNSP") %>%
+                  str_remove("\\(.*\\)"))) %>%
   
-  # Clean text
-  mutate(across(everything(), ~ str_replace(.x, "Je ne sais pas", "JNSP")),
-         across(everything(), ~ str_replace(.x, "\\(.*\\)", ""))) %>%
-  
-  # More condensed replacements
+  # Presence recoding
   mutate(
     ESPECE_presence = recode(ESPECE_presence,
                              "Abondante et largement distribuee" = "Abondante large",
@@ -408,27 +453,26 @@ all_data <- all_data %>%
       TRUE ~ PROFIL_type_orga_rattach
     )
   ) %>%
-  left_join(taxref, join_by("ESPECE_species"=="LB_NOM"))
-
-
-# ACM data prep
-all_data_ACM_species_profile <- all_data %>%
-  select(
-    id, ESPECE_species,
-    ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill,
-    ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev,
-    ESPECE_usages, ESPECE_parties_cueill, ESPECE_mode, ESPECE_espece_reglem, ESPECE_debut_obs
-  ) %>%
-  drop_na() %>%
+  
+  # Add clusters
+  left_join(departements_clus %>% 
+              st_drop_geometry() %>%
+              select(dpt_simple, clus_ward_cut),
+            by = c("ESPECE_dpt" = "dpt_simple")) %>%
+  mutate(biogeo_cluster = clus_ward_cut) %>%
+  select(-clus_ward_cut) %>%
+  
+  # Group harvested parts
   mutate(ESPECE_parties_cueill_grp = case_when(
     ESPECE_parties_cueill %in% c("Feuilles", "Bourgeons", "Partie aerienne", "Jeunes pousses") ~ "Partie_aerienne",
-    ESPECE_parties_cueill %in% c("Fleurs", "Fruits", "Graines") ~ "Partie_reproductive", # grouper simplement en partie aérienne ?
+    ESPECE_parties_cueill %in% c("Fleurs", "Fruits", "Graines") ~ "Partie_reproductive",
     ESPECE_parties_cueill %in% c("Ecorce", "Seve") ~ "Autre",
-    ESPECE_parties_cueill %in% c("Plante entiere") ~ "Plante_entiere",
-    ESPECE_parties_cueill %in% c("Partie souterraine") ~ "Partie_souterraine"
-  )) %>%
+    ESPECE_parties_cueill == "Plante entiere" ~ "Plante_entiere",
+    ESPECE_parties_cueill == "Partie souterraine" ~ "Partie_souterraine")) %>%
   select(-ESPECE_parties_cueill) %>%
   unique() %>%
+  
+  # Wide format: harvested parts
   mutate(presence = "Oui") %>%
   pivot_wider(
     names_from = ESPECE_parties_cueill_grp,
@@ -436,24 +480,60 @@ all_data_ACM_species_profile <- all_data %>%
     names_prefix = "ESPECE_parties_cueill_",
     values_fill = "Non"
   ) %>%
-  mutate(across(-c(id, ESPECE_species), as.factor)) %>%
+  select(-matches("ESPECE_parties_cueill_NA$")) %>%
+  
+  # Wide format: usages
+  mutate(presence = "Oui") %>%
+  pivot_wider(
+    names_from = ESPECE_usages,
+    values_from = presence,
+    names_prefix = "ESPECE_usages_",
+    values_fill = "Non"
+  ) %>%
+  select(-matches("ESPECE_usages_NA$")) %>%
+  
+  # Add taxref, Raunkiaer, CSR, species presence (cover %) per département
+  left_join(taxref, by = c("ESPECE_species" = "LB_NOM")) %>%
+  left_join(raunkieaer, by = "CD_REF") %>%
+  left_join(csr_already_calc, by = "CD_REF") %>%
+  left_join(all_rarity, by = join_by("CD_REF", "ESPECE_dpt"=="dpt_simple")) %>%
+  select(-dpt_name) %>%
+  
+  # Convert to factors (excluding key cols)
+  mutate(across(-c(id, ESPECE_species, CD_REF, C, S, R, sp_relative_area), as.factor))
+
+
+
+#### Multivariate : plant species profiles ####
+##### Prepare data ###
+
+# ACM data prep
+all_data_ACM_species_profile <- all_data %>%
+  select(
+    id, ESPECE_species, CD_REF,
+    ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill,
+    ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev,
+    # starts_with("ESPECE_usages_"), starts_with("ESPECE_parties_cueill_"),
+    # ESPECE_debut_obs,
+    # ESPECE_dpt,
+    ESPECE_mode, ESPECE_espece_reglem
+   ) %>%
   unique() %>%
   na.omit()
 
-
-##### Perform MCA ####
+##### Perform MCA ###
 # Keep a reference table for IDs and species
-ref_table_species <- all_data_ACM_species_profile %>% select(id, ESPECE_species)
+ref_table_species <- all_data_ACM_species_profile %>% select(id, ESPECE_species, CD_REF)
 
 # Perform MCA without id and species
-res.mca.species <- MCA(all_data_ACM_species_profile %>% select(-id, -ESPECE_species),
+res.mca.species <- MCA(all_data_ACM_species_profile %>% select(-id, -ESPECE_species, -CD_REF),
                graph = FALSE)
 
 plot(res.mca.species)
 plot(res.mca.species,invisible=c("var","quali.sup","quanti.sup"),cex=0.7)
 plotellipses(res.mca.species)
 
-##### Extract coordinates for each individual ####
+##### Extract coordinates for each individual ###
 # Get the coordinates of individuals (rows)
 ind_coords_species <- as.data.frame(res.mca.species$ind$coord)
 # Add id and species back to the MCA coordinates
@@ -461,11 +541,11 @@ ind_coords_species <- bind_cols(ref_table_species, ind_coords_species)
 # Now we have a table linking each row's MCA coordinates to id and species
 head(ind_coords_species)
 
-##### Perform hierarchical clustering based on the coordinates ####
+##### Perform hierarchical clustering based on the coordinates ###
 res.hcpc.species <- HCPC(res.mca.species, nb.clust = -1, graph = FALSE) # nb.clust = -1 laisse FactoMineR choisir le nombre optimal
 print(res.hcpc.species$desc.var)
 
-##### Plot clusters ####
+##### Plot clusters ###
 plot_data_species <- data.frame(
   id = rownames(res.mca.species$ind$coord),
   Dim.1 = res.mca.species$ind$coord[,1],
@@ -490,7 +570,7 @@ plot_MCA_species <- ggplot(plot_data_species, aes(x = Dim.1, y = Dim.2, color = 
 print(plot_MCA_species)
 
 
-##### Results ####
+##### Results ###
 # 
 # Cluster 1 : Les espèces perçues comme durables
 # Ce cluster, avec 588 réponses, regroupe des espèces que les participants considèrent comme durables. C'est le cluster le plus représenté. Les caractéristiques dominantes de ces espèces sont :
@@ -597,15 +677,15 @@ print(species_by_cluster_sorted, n = Inf)
 
 
 #### Multivariate : participant profiles ####
-##### Prepare data ####
+##### Prepare data ###
 all_data_ACM_participant_profile <- all_data %>%
   select(id, PROFIL_statut_cueilleur, PROFIL_type_orga_rattach,
-         PROFIL_age, PROFIL_genre, PROFIL_categ_socio_pro, PROFIL_nb_esp_cueill, PROFIL_niveau_educ) %>%
-  mutate(across(-id, as.factor)) %>%
+         PROFIL_age, PROFIL_genre, PROFIL_categ_socio_pro, 
+         PROFIL_nb_esp_cueill, PROFIL_niveau_educ) %>%
   unique() %>%
   na.omit()
 
-##### Perform MCA ####
+##### Perform MCA ###
 # Keep a reference table for IDs and species
 ref_table_particip <- all_data_ACM_participant_profile %>% select(id)
 
@@ -617,7 +697,7 @@ plot(res.mca.particip)
 plot(res.mca.particip,invisible=c("var","quali.sup","quanti.sup"),cex=0.7)
 plotellipses(res.mca.particip)
 
-##### Extract coordinates for each individual ####
+##### Extract coordinates for each individual ###
 # Get the coordinates of individuals (rows)
 ind_coords_particip <- as.data.frame(res.mca.particip$ind$coord)
 
@@ -627,11 +707,11 @@ ind_coords_particip <- bind_cols(ref_table_particip, ind_coords_particip)
 head(ind_coords_particip)
 
 
-##### Perform hierarchical clustering based on the coordinates ####
+##### Perform hierarchical clustering based on the coordinates ###
 res.hcpc.particip <- HCPC(res.mca.particip, nb.clust = -1 , graph = FALSE) # nb.clust = -1 laisse FactoMineR choisir le nombre optimal
 print(res.hcpc.particip$desc.var)
 
-##### Plot clusters ####
+##### Plot clusters ###
 plot_data_particip <- data.frame(
   id = rownames(res.mca.particip$ind$coord),
   Dim.1 = res.mca.particip$ind$coord[,1],
@@ -658,28 +738,113 @@ print(plot_MCA_particip)
 
 
 
-#### AFCM durability ####
-##### Run AFCM (with durability as supplementary variable) ####
-res.afcm.durability <- MCA(all_data_ACM_species_profile %>% select(-id, -ESPECE_species),
-                           quali.sup = which(names(all_data_ACM_species_profile 
-                                                   %>% select(-id, -ESPECE_species)) == "ESPECE_durabilite"),
-                           graph = FALSE)
+#### AFD durability #####
+# --- Data Preparation ---
+data_dfa1 <- all_data %>%
+  select(id, ESPECE_species, CD_REF,
+         ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill,
+         ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev,
+         starts_with("ESPECE_usages_"), starts_with("ESPECE_parties_cueill_"), 
+         ESPECE_mode, ESPECE_espece_reglem, 
+         # ESPECE_debut_obs,
+         ESPECE_dpt) %>%
+  unique() %>%
+  na.omit() %>%
+  # filter(ESPECE_species=="Allium ursinum") %>%
+  select(-id, -ESPECE_species, -CD_REF) %>%
+  droplevels()
 
-##### Visualise individuals (species) colored by durability ####
-fviz_mca_ind(res.afcm.durability, 
-             label = "none",   # hide individul labels
-             habillage = all_data_ACM_species_profile$ESPECE_durabilite, # colored by durability
-             addEllipses = TRUE, ellipse.type = "confidence")
+active_vars1 <- data_dfa1 %>%
+  select(-ESPECE_durabilite)
 
-##### Visualise variables ####
-fviz_mca_var(res.afcm.durability, repel = TRUE) 
+grouping_factor1 <- data_dfa1$ESPECE_durabilite
 
-##### Show only well-represented modalities ####
-fviz_mca_var(res.afcm.durability, repel = TRUE, select.var = list(cos2 = 0.2)) # only modalities with cos2 > 0.2 (explaining at leats 20 % variability)
+# --- Run DFA ---
+res.dfa1 <- discrimin(dudi.acm(active_vars1, scannf = FALSE), 
+                      fac = grouping_factor1, 
+                      scannf = FALSE)
+
+# --- Visualise Results ---
+plot_data1 <- data.frame(
+  score_dfa = res.dfa1$li$DS1,
+  group = grouping_factor1
+)
+
+ggplot(plot_data1, aes(x = score_dfa, fill = group)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density of Species Groups by Durability",
+       x = "Discriminant Axis 1 (CS1)",
+       y = "Density",
+       fill = "Durability") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red"))
+
+# --- Get Contributions ---
+correlations1 <- as.data.frame(res.dfa1$va)
+
+sorted_correlations1 <- correlations1[order(abs(correlations1$CS1), decreasing = TRUE), , drop = FALSE]
+
+top_contributors1 <- head(sorted_correlations1, 10)
+
+print("Top 10 contributing variables for Durability analysis:")
+print(top_contributors1)
 
 
-#### AFCM non sutainable species known ####
-##### Prepare data ####
+#### AFD mix (incl. rarity) durability #####
+# --- Data Preparation ---
+data_dfa_mix1 <- all_data %>%
+  select(id, ESPECE_species, CD_REF,
+         ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill,
+         ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev,
+         # starts_with("ESPECE_usages_"), starts_with("ESPECE_parties_cueill_"), 
+         ESPECE_mode, ESPECE_espece_reglem, ESPECE_dpt,
+         # ESPECE_debut_obs,
+         C, S, R, choix_type_bio, sp_relative_area) %>%
+  unique() %>%
+  na.omit() %>%
+  # filter(ESPECE_species=="Allium ursinum") %>%
+  filter(!ESPECE_species %in% c("Allium ursinum", "Urtica dioica", "Thymus vulgaris")) %>%
+  select(-id, -ESPECE_species, -CD_REF, -ESPECE_dpt) %>%
+  droplevels()
+
+active_vars_mix1 <- data_dfa_mix1 %>%
+  select(-ESPECE_durabilite)
+
+grouping_factor_mix1 <- data_dfa_mix1$ESPECE_durabilite
+
+# --- Run DFA ---
+res.dfa.mix1 <- discrimin(dudi.mix(active_vars_mix1, scannf = FALSE), 
+                      fac = grouping_factor_mix1, 
+                      scannf = FALSE)
+
+# --- Visualise Results ---
+plot_data_mix1 <- data.frame(
+  score_dfa = res.dfa.mix1$li$DS1,
+  group = grouping_factor_mix1
+)
+
+ggplot(plot_data_mix1, aes(x = score_dfa, fill = group)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density of Species Groups by Durability",
+       x = "Discriminant Axis 1 (CS1)",
+       y = "Density",
+       fill = "Durability") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red"))
+
+# --- Get Contributions ---
+correlations_mix1 <- as.data.frame(res.dfa.mix1$va)
+
+sorted_correlations_mix1 <- correlations_mix1[order(abs(correlations_mix1$CS1), 
+                                                    decreasing = TRUE), , drop = FALSE]
+
+top_contributors_mix1 <- head(sorted_correlations_mix1, 10)
+
+print("Top 10 contributing variables for Durability analysis:")
+print(top_contributors_mix1)
+
+
+#### AFD non sustainable species known #####
 all_data_non_durable_connue <- all_data %>%
   select(id, PROFIL_statut_cueilleur, 
          PROFIL_type_orga_rattach,
@@ -700,33 +865,53 @@ ggplot(all_data_non_durable_connue, aes(x = "Total", fill = ESPECE_non_durable_c
     fill = "Species with unsustainable harvesting"
   )
 
-##### Run AFCM (with durability as supplementary variable) ####
-res.afcm.non_durable_connue <- MCA(all_data_non_durable_connue,
-                                   quali.sup = which(names(all_data_non_durable_connue) == "ESPECE_non_durable_connue"),
-                                   graph = FALSE)
+# --- Data Preparation ---
+data_dfa2 <- all_data_non_durable_connue %>%
+  droplevels()
 
-##### Visualise individuals (species) colored by durability ####
-fviz_mca_ind(res.afcm.non_durable_connue, 
-             label = "none",   # hide individul labels
-             habillage = all_data_non_durable_connue$ESPECE_non_durable_connue, # colored by durability
-             addEllipses = TRUE, ellipse.type = "confidence")
+active_vars2 <- data_dfa2 %>%
+  select(-ESPECE_non_durable_connue)
 
-##### Visualise variables ####
-fviz_mca_var(res.afcm.non_durable_connue, repel = TRUE) 
+grouping_factor2 <- data_dfa2$ESPECE_non_durable_connue
 
-##### Show only well-represented modalities ####
-fviz_mca_var(res.afcm.non_durable_connue, repel = TRUE, select.var = list(cos2 = 0.2)) # only modalities with cos2 > 0.2 (explaining at leats 20 % variability)
+# --- Run DFA ---
+res.dfa2 <- discrimin(dudi.acm(active_vars2, scannf = FALSE), 
+                      fac = grouping_factor2, 
+                      scannf = FALSE)
+
+# --- Visualise Results ---
+plot_data2 <- data.frame(
+  score_dfa = res.dfa2$li$DS1,
+  group = grouping_factor2
+)
+
+ggplot(plot_data2, aes(x = score_dfa, fill = group)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density of Groups by Knowledge of Unsustainable Species",
+       x = "Discriminant Axis 1 (CS1)",
+       y = "Density",
+       fill = "Knowledge") +
+  theme_minimal()
+
+# --- Get Contributions ---
+correlations2 <- as.data.frame(res.dfa2$va)
+
+sorted_correlations2 <- correlations2[order(abs(correlations2$CS1), decreasing = TRUE), , drop = FALSE]
+
+top_contributors2 <- head(sorted_correlations2, 10)
+
+print("Top 10 contributing variables for Unsustainable Species Knowledge analysis:")
+print(top_contributors2)
 
 
 
 #### Compute actual rarity for all species ####
-all_rarity$dpt_name_simpl <- iconv(all_rarity$dpt_name, to = "ASCII//TRANSLIT")
-rarity <- left_join(all_data, all_rarity, by=join_by("CD_REF", "ESPECE_dpt"=="dpt_name_simpl")) %>%
-  select(id, ESPECE_species, ESPECE_presence, ESPECE_durabilite, dpt_name, sp_relative_area) %>%
+rarity <- all_data %>%
+  select(id, ESPECE_species, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt, sp_relative_area) %>%
   unique() %>%
   na.omit()
 
-##### Perform the Kruskal-Wallis test #####
+##### Kruskal-Wallis test #####
 kruskal_result <- kruskal.test(sp_relative_area ~ ESPECE_presence, data = rarity)
 
 # Print the results
@@ -754,12 +939,12 @@ p_label <- paste("Kruskal-Wallis, p =", format(p_value, digits = 3))
 ordre_presence <- c("Abondante large", "Abondante locale", "Rare", "Extremement rare", "JNSP")
 rarity$ESPECE_presence <- factor(rarity$ESPECE_presence, levels = ordre_presence)
 
-##### Perform the Dunn's test and get pairwise comparisons ####
+##### Dunn's test and get pairwise comparisons ####
 # Note: You can also use rstatix::dunn_test() which is a more direct function.
 dunn_result <- rarity %>%
   rstatix::dunn_test(sp_relative_area ~ ESPECE_presence, p.adjust.method = "bonferroni")
 
-##### Create the plot with the p-values ####
+##### Plot ####
 ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
   geom_boxplot() +
   geom_point(aes(color = ESPECE_durabilite), position = "jitter") +
@@ -779,22 +964,16 @@ ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
   ) +
   theme_minimal()
 
-accspecies_id <- read.csv("raw_data/list_species_TRY_French_Flora.csv")
-csr_already_calc <- read.csv("raw_data/CSR_calculations_ALL.csv")
-csr_already_calc$csr_simple <- str_split_i(csr_already_calc$strategy_class, pattern="/", i=1)
-
-
 
 
 
 #### Grime strategy and durability ####
   # PCA data prep
-all_data_ACM_species_profile_CSR <- left_join(all_data, csr_already_calc) %>%
+all_data_ACM_species_profile_CSR <- all_data %>%
   select(
     id, ESPECE_species,
     ESPECE_durabilite, C, S, R, csr_simple
   ) %>%  
-  mutate(across(ESPECE_durabilite, as.factor)) %>%
   na.omit() %>%
   unique()
 
@@ -856,10 +1035,11 @@ all_data_ACM_species_profile_Raunk <-
 
 
 # Binary response
-all_data_ACM_species_profile_Raunk$dur_bin <- ifelse(df$ESPECE_durabilite == "Non durable", 1, 0)
+all_data_ACM_species_profile_Raunk$dur_bin <- ifelse(
+  all_data_ACM_species_profile_Raunk$ESPECE_durabilite == "Non durable", 1, 0)
 
 # Logistic regression
-mod <- glm(dur_bin ~ choix_type_bio, data = df, family = binomial)
+mod <- glm(dur_bin ~ choix_type_bio, data = all_data_ACM_species_profile_Raunk, family = binomial)
 
 summary(mod)
 
@@ -891,3 +1071,129 @@ ggplot(all_data_ACM_species_profile_Raunk_summary,
   labs(y = "% Non durable citings (with 95% CI)", 
        x = "Raunkiaer life form") +
   theme_minimal()
+
+
+
+#### Enjeux ####
+data_enjeux <- all_rarity %>%
+  full_join(all_data %>% select(-sp_relative_area), by="CD_REF") %>%
+  select(CD_REF, id, ESPECE_species, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
+         dpt_name, dpt_simple, sp_relative_area) %>%
+  mutate(sp_relative_area = ifelse(is.na(sp_relative_area), 0, sp_relative_area)) %>%
+  unique() %>%
+  na.omit() %>%
+  mutate(n_answers = ifelse(ESPECE_dpt==dpt_simple, 1, 0)) %>%
+  pivot_wider(
+    names_from = ESPECE_durabilite,
+    values_from = n_answers,
+    names_prefix = "",
+    names_glue = "{.value}_{gsub(' ', '_', .name)}",
+    values_fill = 0
+  ) %>%
+  group_by(CD_REF, ESPECE_species, dpt_name, sp_relative_area) %>%
+  summarise(n_answers_Non_durable=sum(n_answers_Non_durable),
+            n_answers_Durable=sum(n_answers_Durable)) %>%
+  mutate(proportion_non_durable = ifelse(n_answers_Non_durable==0, NA, 
+                                         100* n_answers_Non_durable/
+           (n_answers_Non_durable+n_answers_Durable)))
+
+
+
+summary_enjeux <- data_enjeux %>%
+  # Group the dataframe by the species name
+  group_by(ESPECE_species) %>%
+  # Summarize the data to get all the requested counts and totals
+  summarise(
+    
+    # Number of departments with non-durable answers
+    num_non_durable_dpts = sum(n_answers_Non_durable > 0, na.rm = TRUE),
+    
+    # Number of departments with durable answers
+    num_durable_dpts = sum(n_answers_Durable > 0, na.rm = TRUE),
+    
+    # Number of departments where the species is present
+    num_present_dpts = sum(sp_relative_area > 0, na.rm = TRUE),
+    
+    # Number of departments with at least one answer (durable or non-durable)
+    num_dpts_with_any_answer = sum((n_answers_Non_durable > 0) | (n_answers_Durable > 0), na.rm = TRUE),
+    
+    # Answer coverage ratio (Number of departments where the species is present and has at least one answer)
+    answer_coverage = 100 * sum(sp_relative_area > 0 & 
+                               ((n_answers_Non_durable > 0) | (n_answers_Durable > 0)),
+                             na.rm = TRUE) / num_present_dpts,
+    
+    # Total number of durable answers
+    total_answers_durable = sum(n_answers_Durable, na.rm = TRUE),
+    
+    # Total number of non-durable answers
+    total_answers_non_durable = sum(n_answers_Non_durable, na.rm = TRUE),
+    
+    # Total number of all answers (durable + non-durable)
+    total_answers_all = sum(n_answers_Durable, na.rm = TRUE) + sum(n_answers_Non_durable, na.rm = TRUE),
+    
+    .groups = 'drop' # This removes the grouping for the final dataframe
+  ) %>%
+  # Calculate the ratio for the graph's x-axis
+  mutate(
+    non_durable_ratio1 = 100 * num_non_durable_dpts / num_dpts_with_any_answer,
+    non_durable_ratio2 = 100 * num_non_durable_dpts / num_present_dpts,
+    durable_ratio1 = 100 * num_durable_dpts / num_dpts_with_any_answer,
+    durable_ratio2 = 100 * num_durable_dpts / num_present_dpts
+    ) %>%
+  # 1. Arrange the dataframe by your desired order (first by answer_ratio, then by non_durable_ratio)
+  arrange(non_durable_ratio2, answer_coverage) %>%
+  # 2. Reorder the factor levels to match the new row order
+  # This is the crucial step to ensure the plot is ordered correctly
+  mutate(ESPECE_species = factor(ESPECE_species, levels = unique(ESPECE_species)))
+
+
+
+# Create the scatter plot with dot size mapped to total answers
+ggplot(summary_enjeux, aes(x = ESPECE_species,
+                           y = non_durable_ratio2,
+                           size = total_answers_all,
+                           colour = answer_coverage)) +
+  # Use geom_point() to represent each species as a dot
+  geom_point(alpha = 0.7) +
+  geom_point(alpha = 0.7, aes(x = ESPECE_species,
+                 y = durable_ratio2,
+                 size = total_answers_all),
+
+             colour = "darkgreen") +
+
+  labs(
+    title = "Non-Durable Ratio by Species",
+    subtitle = "Dot size represents the total number of answers",
+    x = "Species Name (Ordered by Ratio)",
+    y = "Non-Durable Ratio (%)",
+    size = "Total Answers" # This label is for the legend
+  ) +
+  scale_color_distiller(type="seq", palette="Reds", direction=1) +
+  theme_minimal() +
+  # Rotate x-axis labels for readability
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+ggplot(summary_enjeux, aes(x = ESPECE_species,
+                           y = non_durable_ratio1,
+                           size = total_answers_all,
+                           colour = answer_coverage)) +
+  # Use geom_point() to represent each species as a dot
+  geom_point(alpha = 0.7) +
+  geom_point(alpha = 0.7, aes(x = ESPECE_species,
+                              y = durable_ratio1,
+                              size = total_answers_all),
+             
+             colour = "darkgreen") +
+  
+  labs(
+    title = "Non-Durable Ratio by Species",
+    subtitle = "Dot size represents the total number of answers",
+    x = "Species Name (Ordered by Ratio)",
+    y = "Non-Durable Ratio (%)",
+    size = "Total Answers" # This label is for the legend
+  ) +
+  scale_color_distiller(type="seq", palette="Reds", direction=1) +
+  theme_minimal() +
+  # Rotate x-axis labels for readability
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
