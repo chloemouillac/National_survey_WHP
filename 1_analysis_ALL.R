@@ -142,7 +142,7 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     # Classify values by type (species, presence, etendue_cueill, durability)
     mutate(
       type = case_when(
-        qcode == "1" ~ "species",
+        qcode == "1" ~ "nom",
         group %in% c("3", "4") & qcode == "2" ~ "dpt",
         !(group %in% c("3", "4")) & qcode == "4" ~ "dpt",
         group %in% c("3", "4") & qcode == "4" ~ "presence",
@@ -185,9 +185,9 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     ) %>%
     
     # Clean and process species and type_cueilleur
-    separate_rows(species, sep = ",\\s*") %>%
+    separate_rows(nom, sep = ",\\s*") %>%
     mutate(
-      species = str_trim(species),
+      nom = str_trim(nom),
       type_cueilleur = word(type_cueilleur, 1, 2),
       dpt = str_trim(str_remove(dpt, "\\s*\\([0-9AB]+\\)"))
     ) %>%
@@ -195,7 +195,7 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     unnest(everything()) %>%
     
     # Filter out empty species
-    filter(species != "") %>%
+    filter(nom != "") %>%
     
     # Keep only one record per ID, species, and group to avoid double-counting
     unique()
@@ -220,7 +220,7 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     left_join(df_type_cueillette, by = c("id", "group")) %>%
     left_join(df_type_entrep, by = c("id", "group")) %>%
     left_join(df_cause_reglem_inadaptee, by = c("id", "group")) %>%
-    filter(species != "")
+    filter(nom != "")
   
   return(df_final)
 }
@@ -1179,7 +1179,7 @@ all_data$PROFIL_type_orga_rattach[grepl("plantes sauvages", all_data$PROFIL_type
 
 ##### Multivariate : durable vs non durable species profiles ####
 all_data_ACM_profil <- all_data %>%
-  select(id, ESPECE_species,
+  select(id, ESPECE_nom,
          ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill, 
          ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev, 
          ESPECE_usages, ESPECE_parties_cueill,ESPECE_mode, ESPECE_espece_reglem
@@ -1200,7 +1200,7 @@ all_data_ACM_profil <- all_data %>%
 all_data_ACM_profil <- all_data_ACM_profil %>%
   mutate(across(c(ESPECE_durabilite:ESPECE_mode, starts_with("ESPECE_parties_cueill_")), as.factor))
 
-res.mca <- MCA(all_data_ACM_profil %>% select(-id, -ESPECE_species),
+res.mca <- MCA(all_data_ACM_profil %>% select(-id, -ESPECE_nom),
                graph = FALSE)
 
 plot(res.mca)
@@ -1288,14 +1288,14 @@ print(p)
 
 # Créer un dataframe avec le nom de l'espèce et le cluster
 species_clusters <- data.frame(
-  ESPECE_species = all_data_ACM_profil$ESPECE_species,
+  ESPECE_nom = all_data_ACM_profil$ESPECE_nom,
   Cluster = res.hcpc$data.clust$clust
 )
 # Calculer le nombre de réponses pour chaque espèce dans chaque cluster
 species_by_cluster <- species_clusters %>%
-  group_by(ESPECE_species, Cluster) %>%
+  group_by(ESPECE_nom, Cluster) %>%
   summarise(n = n(), .groups = 'drop') %>%
-  arrange(ESPECE_species)
+  arrange(ESPECE_nom)
 
 # Afficher les 20 espèces les plus représentées dans chaque cluster
 species_by_cluster_sorted <- species_by_cluster %>%
@@ -1531,7 +1531,7 @@ print(p)
 all_data_ACM <- all_data %>%
   select(id,PROFIL_statut_cueilleur, PROFIL_type_orga_rattach,
          PROFIL_age, PROFIL_genre, PROFIL_categ_socio_pro, PROFIL_nb_esp_cueill, PROFIL_niveau_educ,
-         ESPECE_species,
+         ESPECE_nom,
          ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill, 
          ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev, 
          ESPECE_usages, ESPECE_parties_cueill,ESPECE_mode, ESPECE_espece_reglem) %>%
@@ -1556,7 +1556,7 @@ all_data_ACM <- all_data %>%
 
 
 
-res.mca <- MCA(all_data_ACM %>% select(-id, -ESPECE_species),
+res.mca <- MCA(all_data_ACM %>% select(-id, -ESPECE_nom),
                graph = FALSE)
 
 # 5. Interprétation des résultats
