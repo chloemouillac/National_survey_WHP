@@ -14,6 +14,7 @@ library(ade4)
 library(inflection)
 library(ggrepel)
 library(lme4)
+library(tidytext)
 
 #### Import data ####
 raw_data <- read.csv("raw_data/results-survey676868_prefilter.csv")
@@ -44,7 +45,7 @@ taxref <-  read.delim("raw_data/TAXREF_v17_2024/TAXREFv17.txt") %>%
   unique()
 
 all_rarity <-  read.csv("raw_data/OpenObs+GBIF_RARITY_20km.csv") %>%
-  dplyr::select(CD_REF, dpt_name, sp_relative_area) %>%
+  dplyr::select(CD_REF, dpt_area, sp_area, dpt_name, sp_relative_area) %>%
   mutate(dpt_simple =  str_replace_all(dpt_name, "[-']", " "),
          dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"))
 
@@ -902,41 +903,75 @@ print("Top 10 contributing variables for Durability analysis:")
 print(top_contributors_mix1)
 
 
-#### GLM mix ####
+# #### GLM mix ####
+# 
+# # Variable réponse (binaire : "Durable" / "Non durable")
+# data_glm_mix <- all_data %>%
+#   dplyr::select(id, ESPECE_nom, CD_REF,
+#          ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill,
+#          ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev,
+#          # starts_with("ESPECE_usages_"), starts_with("ESPECE_parties_cueill_"), 
+#          ESPECE_mode, ESPECE_espece_reglem, ESPECE_dpt,
+#          # ESPECE_debut_obs,
+#          C, S, R, choix_type_bio, sp_relative_area) %>%
+#   unique() %>%
+#   na.omit() %>%
+#   # filter(ESPECE_nom=="Allium ursinum") %>%
+#   # filter(!ESPECE_nom %in% c("Allium ursinum", "Urtica dioica", "Thymus vulgaris")) %>%
+#   dplyr::select(-id, -CD_REF, -ESPECE_dpt) %>%
+#   droplevels()
+# 
+# # Ajustement du modèle
+# glm_mix_durability <- glm(
+#   ESPECE_durabilite ~ . -ESPECE_nom, 
+#   data = data_glm_mix,
+#   family = binomial(link = "logit")
+# )
+# # Résumé du modèle
+# summary(glm_mix_durability)
+# 
+# glmm_mix_durability <- glmer(
+#   ESPECE_durabilite ~ . + (1 | ESPECE_nom),
+#   data = data_glm_mix, 
+#   family = binomial(link = "logit")
+# )
+# 
+# # Résumé du modèle
+# summary(glmm_mix_durability)
+# 
+# 
+# 
+# #### GLM mix ####
+# 
+# # Variable réponse (binaire : "Durable" / "Non durable")
+# data_glm_mix <- all_data %>%
+#   dplyr::select(id, ESPECE_nom, CD_REF, ESPECE_durabilite,
+#                 C, S, R, choix_type_bio, sp_relative_area) %>%
+#   unique() %>%
+#   na.omit() %>%
+#   # filter(ESPECE_nom=="Allium ursinum") %>%
+#   # filter(!ESPECE_nom %in% c("Allium ursinum", "Urtica dioica", "Thymus vulgaris")) %>%
+#   dplyr::select(-id, -CD_REF) %>%
+#   droplevels()
+# 
+# # Ajustement du modèle
+# glm_mix_durability <- glm(
+#   ESPECE_durabilite ~ . -ESPECE_nom, 
+#   data = data_glm_mix,
+#   family = binomial(link = "logit")
+# )
+# # Résumé du modèle
+# summary(glm_mix_durability)
+# 
+# glmm_mix_durability <- glmer(
+#   ESPECE_durabilite ~ . + (1 | ESPECE_nom),
+#   data = data_glm_mix, 
+#   family = binomial(link = "logit")
+# )
+# 
+# # Résumé du modèle
+# summary(glmm_mix_durability)
 
-# Variable réponse (binaire : "Durable" / "Non durable")
-data_glm_mix <- all_data %>%
-  dplyr::select(id, ESPECE_nom, CD_REF,
-         ESPECE_durabilite, ESPECE_presence, ESPECE_etendue_cueill,
-         ESPECE_etat_ressource, ESPECE_variation_prelev, ESPECE_intensite_prelev,
-         # starts_with("ESPECE_usages_"), starts_with("ESPECE_parties_cueill_"), 
-         ESPECE_mode, ESPECE_espece_reglem, ESPECE_dpt,
-         # ESPECE_debut_obs,
-         C, S, R, choix_type_bio, sp_relative_area) %>%
-  unique() %>%
-  na.omit() %>%
-  # filter(ESPECE_nom=="Allium ursinum") %>%
-  # filter(!ESPECE_nom %in% c("Allium ursinum", "Urtica dioica", "Thymus vulgaris")) %>%
-  dplyr::select(-id, -CD_REF, -ESPECE_dpt) %>%
-  droplevels()
-
-# Ajustement du modèle
-glm_mix_durability <- glm(
-  ESPECE_durabilite ~ . -ESPECE_nom, 
-  data = data_glm_mix,
-  family = binomial(link = "logit")
-)
-# Résumé du modèle
-summary(glm_mix_durability)
-
-glmm_mix_durability <- glmer(
-  ESPECE_durabilite ~ . - ESPECE_nom + (1 | ESPECE_nom),
-  data = data_glm_mix, 
-  family = binomial(link = "logit")
-)
-
-# Résumé du modèle
-summary(glmm_mix_durability)
 
 
 #### AFD non sustainable species known #####
@@ -1169,8 +1204,7 @@ ggplot(all_data_ACM_species_profile_Raunk_summary,
 
 
 
-#### Enjeux ####
-massifs_simple <- read.csv("massifs_cueillette_simple.csv")
+#### Enjeux par département ####
 data_enjeux <- all_rarity %>%
   full_join(all_data %>% dplyr::select(-sp_relative_area), by="CD_REF") %>%
   dplyr::select(CD_REF, id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
@@ -1195,8 +1229,7 @@ data_enjeux <- all_rarity %>%
          proportion_non_durable = ifelse(n_answers_Non_durable==0 & 
                                            n_answers_Durable>0, 0, 
                                          proportion_non_durable),
-         proportion_non_durable = round(proportion_non_durable,1)) %>%
-  left_join(massifs_simple, join_by("dpt_name"=="dpt"))
+         proportion_non_durable = round(proportion_non_durable,1))
 
 
 
@@ -1290,98 +1323,89 @@ ggplot(data_enjeux_filtered, aes(x = ESPECE_nom,
 
 
 
-data_enjeux_summar <- data_enjeux %>%
-  group_by(CD_REF, ESPECE_nom, massif) %>%
-  summarise(n_answers_Durable=sum(n_answers_Durable),
-            n_answers_Non_durable=sum(n_answers_Non_durable),
-            proportion_non_durable=mean(proportion_non_durable, na.rm=T))
 
 
-data_enjeux_summar_filtered <-  data_enjeux_summar %>%
-  group_by(ESPECE_nom) %>%
-  mutate(
-    median_non_durable = median(proportion_non_durable, na.rm = TRUE),
-    mean_non_durable = mean(proportion_non_durable, na.rm = TRUE),
-    max_non_durable = max(proportion_non_durable, na.rm = TRUE),
-    
-    # Number of departments with non-durable answers
-    num_non_durable_dpts = sum(n_answers_Non_durable > 0, na.rm = TRUE),
-    
-    # Number of departments with durable answers
-    num_durable_dpts = sum(n_answers_Durable > 0, na.rm = TRUE),
-    
-    # Number of departments where the species is present
-    num_present_dpts = sum(sp_relative_area > 0, na.rm = TRUE),
-    
-    # Number of departments with at least one answer (durable or non-durable)
-    num_dpts_with_any_answer = sum((n_answers_Non_durable > 0) | (n_answers_Durable > 0), na.rm = TRUE),
-    
-    # Answer coverage ratio (Number of departments where the species is present and has at least one answer)
-    answer_coverage = 100 * sum(sp_relative_area > 0 & 
-                                  ((n_answers_Non_durable > 0) | (n_answers_Durable > 0)),
-                                na.rm = TRUE) / num_present_dpts,
-    
-    # Total number of durable answers
-    total_answers_durable = sum(n_answers_Durable, na.rm = TRUE),
-    
-    # Total number of non-durable answers
-    total_answers_non_durable = sum(n_answers_Non_durable, na.rm = TRUE),
-    
-    # Total number of all answers (durable + non-durable)
-    total_answers_all = sum(n_answers_Durable, na.rm = TRUE) + 
-      sum(n_answers_Non_durable, na.rm = TRUE)) %>%
-  
-  ungroup() %>%
-  
-  # Keep only the species with at least 3 citations
-  filter(total_answers_all>2) %>%
-  
-  # Calculate the ratio for the graph's x-axis
-  mutate(
-    non_durable_ratio1 = 100 * num_non_durable_dpts / num_dpts_with_any_answer,
-    non_durable_ratio2 = 100 * num_non_durable_dpts / num_present_dpts,
-    durable_ratio1 = 100 * num_durable_dpts / num_dpts_with_any_answer,
-    durable_ratio2 = 100 * num_durable_dpts / num_present_dpts
+#### Enjeux par massif ####
+massifs_simple <- read.csv("massifs_cueillette_simple.csv")
+
+data_enjeux_massif <- all_rarity %>%
+  full_join(all_data %>% dplyr::select(-sp_relative_area), by="CD_REF") %>%
+  dplyr::select(CD_REF, id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
+                dpt_name, dpt_simple, dpt_area, sp_area) %>%
+  left_join(massifs_simple, join_by("dpt_name"=="dpt")) %>%
+  unique() %>%
+  na.omit() %>%
+  mutate(n_answers = ifelse(ESPECE_dpt==dpt_simple, 1, 0)) %>%
+  pivot_wider(
+    names_from = ESPECE_durabilite,
+    values_from = n_answers,
+    names_prefix = "",
+    names_glue = "{.value}_{gsub(' ', '_', .name)}",
+    values_fill = 0
   ) %>%
-  # 1. Arrange the dataframe by your desired order (first by answer_ratio, then by non_durable_ratio)
-  arrange(non_durable_ratio1, answer_coverage) %>%
-  # 2. Reorder the factor levels to match the new row order
-  # This is the crucial step to ensure the plot is ordered correctly
-  mutate(ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom))) %>%
+  group_by(CD_REF, ESPECE_nom, massif) %>%
+  summarise(sp_relative_area = round(100*sum(sp_area)/sum(dpt_area),2),
+            n_answers_Non_durable = sum(n_answers_Non_durable),
+            n_answers_Durable = sum(n_answers_Durable),
+            n_answers_all = n_answers_Durable + n_answers_Non_durable) %>%
+  mutate(proportion_non_durable = ifelse(n_answers_Non_durable==0, NA, 
+                                         100* n_answers_Non_durable/
+                                           (n_answers_Non_durable+n_answers_Durable)),
+         proportion_non_durable = ifelse(n_answers_Non_durable==0 & 
+                                           n_answers_Durable>0, 0, 
+                                         proportion_non_durable),
+         proportion_non_durable = round(proportion_non_durable,1)) %>%
+  filter(n_answers_all>1) %>%
+  arrange(proportion_non_durable, n_answers_all) %>%
+  mutate(ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)))
   
-  na.omit() 
 
 
 
-ggplot(data_enjeux_summar_filtered, aes(x = ESPECE_nom,
-                                 y = proportion_non_durable)) +
+ggplot(data_enjeux_massif, aes(x = reorder_within(ESPECE_nom, proportion_non_durable, massif),
+                                        y = proportion_non_durable)) +
   
-  geom_boxplot(fill = "grey90", outlier.alpha = 0.3) +
-  
-  geom_point(aes(x = ESPECE_nom, 
-                 y = proportion_non_durable),
-             alpha = 0.1) +
-  
-  geom_point(aes(x = ESPECE_nom, 
-                 y = non_durable_ratio1,
-                 colour = answer_coverage,
-                 size = total_answers_all),
+  geom_point(aes(size = n_answers_all),
              alpha = 0.8) +
   
-  scale_color_distiller(type="seq", palette="Reds", direction=1) +
+  # scale_color_distiller(type = "seq", palette = "Reds", direction = 1) +
   labs(
-    title = "Proportion non durable par espèce",
+    title = "Proportion non durable par espèce et massif",
     x = "Espèce",
-    y = "Proportion de dpts avec 1 réponse non durable (%)",
+    y = "Proportion de dpts avec ≥1 réponse non durable (%)",
     size = "Nombre total de réponses",
-    colour = "Couverture des reponses"
+    colour = "Couverture des réponses"
   ) +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)) +
+  
+  facet_wrap(~ massif, scales = "free_x") +
+  
+  scale_x_reordered()
+
 
 
 
 #### Maps for specific species ####
+# Data is already processed in `df_all_species_data`, now join with `departements`
+citations_by_species_dpt <- all_data %>%
+  select(id, ESPECE_nom, ESPECE_durabilite, ESPECE_dpt) %>% 
+  filter(!is.na(ESPECE_dpt) & ESPECE_dpt != "") %>%
+  unique() %>%
+  filter(!is.na(ESPECE_dpt) & ESPECE_dpt != "") %>%
+  group_by(ESPECE_dpt, ESPECE_nom, ESPECE_durabilite) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = ESPECE_durabilite,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(total_citations = Durable + `Non durable`)
+
+
+global_max_total <- max(citations_by_species_dpt$total_citations, na.rm = TRUE)
+
 plot_species_map <- function(species_name) {
   map_data <- departements_simpl_PARIS %>%
     left_join(data_enjeux %>% filter(ESPECE_nom == species_name), 
@@ -1458,7 +1482,7 @@ plot_species_map <- function(species_name) {
 # plot_species_map("Arnica montana")
 # plot_species_map("Gentiana lutea")
 # plot_species_map("Thymus vulgaris")
-# plot_species_map("Euphorbia spinosa")
+plot_species_map("Euphorbia spinosa")
 # plot_species_map("Artemisia umbelliformis")
 # plot_species_map("Sambucus nigra")
 # plot_species_map("Vaccinium myrtillus")
@@ -1511,7 +1535,7 @@ plot_durability_diverging <- function(data, n = 10) {
     )
 }
 # Example usage to show the top 10 species
-plot_durability_diverging(all_data, n = 200)
+plot_durability_diverging(all_data, n = 40)
 
 
 
@@ -1533,7 +1557,7 @@ plot_cumulative_species <- function(data) {
   
   # 95% cutoff species
   cutoff_species_95 <- df_cum %>%
-    filter(cum_percent <= 95) %>%
+    filter(cum_percent <= 75) %>%
     nrow()
   
   # Knee detection (returns index of cutoff species)
@@ -1605,3 +1629,4 @@ ggplot(dc, aes(x = num_present_dpts)) +
     y = "Density"
   ) +
   theme_minimal()
+
