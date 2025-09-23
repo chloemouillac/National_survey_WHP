@@ -1033,6 +1033,66 @@ top_contributors2 <- head(sorted_correlations2, 10)
 print("Top 10 contributing variables for Unsustainable Species Knowledge analysis:")
 print(top_contributors2)
 
+#### AFD durability vs Profile #####
+all_data_non_durable_profil <- all_data %>%
+  dplyr::select(id, ESPECE_nom, ESPECE_dpt, PROFIL_statut_cueilleur, 
+                PROFIL_type_orga_rattach,
+                # PROFIL_age, 
+                PROFIL_categ_socio_pro, 
+                PROFIL_nb_esp_cueill,
+                ESPECE_durabilite) %>%
+  unique() %>%
+  mutate(across(-id, as.factor)) %>%  
+  dplyr::select(-id) %>%
+  na.omit()
+
+ggplot(all_data_non_durable_profil, aes(x = "Total", fill = ESPECE_durabilite)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Sustainability assignement",
+    x = "",
+    y = "Percentage of participants",
+    fill = "Species with unsustainable harvesting"
+  )
+
+# --- Data Preparation ---
+data_dfa2 <- all_data_non_durable_profil %>%
+  droplevels()
+
+active_vars2 <- data_dfa2 %>%
+  dplyr::select(-ESPECE_durabilite)
+
+grouping_factor2 <- data_dfa2$ESPECE_durabilite
+
+# --- Run DFA ---
+res.dfa2 <- discrimin(dudi.acm(active_vars2, scannf = FALSE), 
+                      fac = grouping_factor2, 
+                      scannf = FALSE)
+
+# --- Visualise Results ---
+plot_data2 <- data.frame(
+  score_dfa = res.dfa2$li$DS1,
+  group = grouping_factor2
+)
+
+ggplot(plot_data2, aes(x = score_dfa, fill = group)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density of Groups by Knowledge of Unsustainable Species",
+       x = "Discriminant Axis 1 (CS1)",
+       y = "Density",
+       fill = "Knowledge") +
+  theme_minimal()
+
+# --- Get Contributions ---
+correlations2 <- as.data.frame(res.dfa2$va)
+
+sorted_correlations2 <- correlations2[order(abs(correlations2$CS1), decreasing = TRUE), , drop = FALSE]
+
+top_contributors2 <- head(sorted_correlations2, 10)
+
+print("Top 10 contributing variables for Unsustainable Species Knowledge analysis:")
+print(top_contributors2)
 
 
 #### Compute actual rarity for all species ####
@@ -1629,4 +1689,93 @@ ggplot(dc, aes(x = num_present_dpts)) +
     y = "Density"
   ) +
   theme_minimal()
+
+
+
+
+##### GLM tests ########
+
+
+####################################""""
+data_glm_durabilite$ESPECE_durabilite <- ifelse(data_glm_durabilite$ESPECE_durabilite == "Durable", 1, 0)
+data_glm_durabilite <- data_glm_durabilite 
+
+# model4 <- glmer(ESPECE_durabilite ~ . + (1|ESPECE_nom), family = binomial(link = "logit"), data=data_glm_durabilite) # failure to converge
+
+model5 <- glm(ESPECE_durabilite ~ . -ESPECE_nom, family = binomial(link = "logit"), data=data_glm_durabilite)
+summary(glm_durability)
+
+# 1. Stepwise AIC selection
+model_full <- glm(
+  ESPECE_durabilite ~ . - ESPECE_nom,
+  family = binomial(link = "logit"),
+  data = data_glm_durabilite
+)
+
+model_step <- stepAIC(model_full, direction = "both", trace = FALSE)
+summary(model_step)
+
+vars_step <- names(coef(model_step))[coef(model_step) != 0]
+vars_step <- vars_step[vars_step != "(Intercept)"]
+
+
+# 2. LASSO (cv.glmnet)
+# glmnet requires matrix input
+X <- model.matrix(ESPECE_durabilite ~ . - ESPECE_nom, data = data_glm_durabilite)[, -1]
+y <- data_glm_durabilite$ESPECE_durabilite
+
+set.seed(123) # for reproducibility
+cv_lasso <- cv.glmnet(X, y, family = "binomial", alpha = 1)
+
+plot(cv_lasso)
+
+coef_lasso <- coef(cv_lasso, s = "lambda.min")
+vars_lasso <- rownames(coef_lasso)[as.vector(coef_lasso != 0)]
+vars_lasso <- vars_lasso[vars_lasso != "(Intercept)"]
+
+
+# 3. Compare selected variables
+list(
+  Stepwise_AIC = vars_step,
+  LASSO = vars_lasso
+)
+
+
+# LASSO selected variables
+vars_lasso
+colnames(data_glm_durabilite)
+
+
+# Initialize vector to store matched column names
+
+matched_cols <- colnames(data_glm_durabilite)[
+  sapply(colnames(data_glm_durabilite), function(col) {
+    any(grepl(col, vars_lasso))
+  })
+]
+
+matched_cols
+
+
+# Build formula dynamically
+formula_lasso <- as.formula(
+  paste("ESPECE_durabilite ~", paste(matched_cols, collapse = " + "))
+)
+
+
+# Fit GLM
+model_lasso_selected <- glm(
+  formula_lasso,
+  family = binomial(link = "logit"),
+  data = data_glm_durabilite
+)
+
+summary(model_lasso_selected)
+
+# Coefficients and p-values
+coefs <- summary(model_lasso_selected)$coefficients
+coefs
+
+odds_ratios <- exp(coefs[, "Estimate"])
+confint_glm <- exp(confint(model_lasso_selected))  # 95% CI
 
