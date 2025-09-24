@@ -19,6 +19,7 @@ library(forcats)
 library(MASS)
 library(glmnet)
 library(tibble)
+library(cluster)
 
 #### Import data ####
 raw_data <- read.csv("raw_data/results-survey676868_prefilter.csv")
@@ -531,7 +532,7 @@ all_data <- df_profile_renamed %>%
   dplyr::select(-dpt_name) %>%
   
   # Convert to factors (excluding key cols)
-  mutate(across(-c(id, ESPECE_nom, CD_REF, C, S, R, sp_relative_area), as.factor))
+  mutate(across(-c(id, ESPECE_nom, CD_REF, C, S, R, sp_relative_area, sp_area), as.factor))
 
 
 #### Bar Plot of all cited species (only >1 citation) ####
@@ -997,6 +998,7 @@ plot_MCA_particip <- ggplot(plot_data_particip, aes(Dim.1, Dim.2, color = Cluste
 
 print(plot_MCA_particip)
 
+
 ##### Plot clusters with top contributing variables ###
 var_data <- as.data.frame(res.mca.particip$var$coord)
 var_contrib <- as.data.frame(res.mca.particip$var$contrib)
@@ -1033,6 +1035,24 @@ plot_MCA_with_vars <- plot_MCA_particip +
 plot_MCA_with_vars
 
 
+##### Analyse performance #####
+# Calculate the distance matrix based on the MCA coordinates
+dist_matrix <- dist(res.mca.particip$ind$coord)
+
+# Get the cluster assignments from the HCPC result
+# Convert the cluster factor to a numeric vector for compatibility
+cluster_assignments_numeric <- as.numeric(as.character(res.hcpc.particip$data.clust$clust))
+
+# Compute the silhouette values with the numeric cluster assignments
+sil_result <- silhouette(cluster_assignments_numeric, dist_matrix)
+
+# Print a summary of the silhouette results
+summary(sil_result)
+
+# Plot the silhouette
+plot(sil_result)
+
+
 #### Do respondent profiles impact the perception of sustainability ? ####
 ##### Sustainability status VS respondent profile ####
 
@@ -1055,6 +1075,7 @@ d$sustainability <- ifelse(d$sustainability == "Durable", 1, 0)
 model1 <- glmer(sustainability ~ respondent_profile + (1|harvest_area) + (1|species),
             data = d, family = binomial)
 summary(model1)
+
 
 model2 <- glmer(sustainability ~ respondent_profile + (1|species:harvest_area), # most adapted ?
                data = d, family = binomial)
@@ -1154,3 +1175,190 @@ sorted_correlations <- correlations[order(abs(correlations$CS1), decreasing = TR
 top_contributors <- head(sorted_correlations, 10)
 
 print(top_contributors)
+
+
+
+# --- Cohen's d ---
+group_stats <- plot_data %>%
+  group_by(group) %>%
+  summarise(mean_score = mean(score_dfa),
+            sd_score = sd(score_dfa),
+            n = n())
+
+mean_diff <- diff(group_stats$mean_score)
+pooled_sd <- sqrt(((group_stats$sd_score[1]^2)*(group_stats$n[1]-1) +
+                     (group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
+                    (sum(group_stats$n)-2))
+cohens_d <- mean_diff / pooled_sd
+
+cat("Cohen's d (DS1 separation):", round(cohens_d, 3), "\n")
+
+# --- Classification accuracy ---
+# Prepare data for LDA (all predictors as factors)
+lda_data <- data_dfa_durabilite_sp %>%
+  dplyr::select(-ESPECE_nom)
+
+lda_fit <- lda(ESPECE_durabilite ~ ., data = lda_data)
+pred <- predict(lda_fit)$class
+
+conf_mat <- table(Predicted = pred, Actual = lda_data$ESPECE_durabilite)
+cat("Confusion matrix:\n")
+print(conf_mat)
+
+accuracy <- mean(pred == lda_data$ESPECE_durabilite)
+cat("Classification accuracy:", round(accuracy*100, 1), "%\n")
+
+
+
+
+#### Is the sustainability of the harvesting of a species dictated by other factors than perceptions ? ####
+##### DFA ####
+# Variable réponse (binaire : "Durable" / "Non durable")
+data_dfa_durabilite_sp_bio <- all_data %>%
+  dplyr::select(id, ESPECE_nom, CD_REF,
+                ESPECE_durabilite, C, S, R, sp_relative_area, choix_type_bio) %>%
+  unique() %>%
+  na.omit() %>%
+  dplyr::select(-CD_REF, -id) %>%
+  droplevels() %>%
+  mutate(across(-c(ESPECE_durabilite, C, S, R, sp_relative_area), as.factor)) %>%
+  mutate(ESPECE_durabilite = forcats::fct_recode(
+    ESPECE_durabilite,
+    "Sustainable" = "Durable",
+    "Non sustainable" = "Non durable"
+  ))
+
+active_vars <- data_dfa_durabilite_sp_bio %>%
+  dplyr::select(-ESPECE_durabilite, -ESPECE_nom)
+
+grouping_factor <- data_dfa_durabilite_sp_bio$ESPECE_durabilite
+
+# --- Run DFA ---
+res.dfa <- discrimin(dudi.mix(active_vars, scannf = FALSE), 
+                     fac = grouping_factor, 
+                     scannf = FALSE)
+
+# --- Visualise Results ---
+plot_data <- data.frame(
+  score_dfa = res.dfa$li$DS1,
+  group = grouping_factor
+)
+
+ggplot(plot_data, aes(x = score_dfa, fill = group)) +
+  geom_density(alpha = 0.5) +
+  labs( title = "Species distribution by sustainability status",
+        x = "Discriminant Axis 1",
+        y = "Density",
+        fill = "Sustainability perception") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Sustainable" = "darkgreen", "Non sustainable" = "red"))
+
+# --- Get Contributions ---
+correlations <- as.data.frame(res.dfa$va)
+
+sorted_correlations <- correlations[order(abs(correlations$CS1), decreasing = TRUE), , drop = FALSE]
+
+top_contributors <- head(sorted_correlations, 10)
+
+print(top_contributors)
+
+# --- Cohen's d ---
+group_stats <- plot_data %>%
+  group_by(group) %>%
+  summarise(mean_score = mean(score_dfa),
+            sd_score = sd(score_dfa),
+            n = n())
+
+mean_diff <- diff(group_stats$mean_score)
+pooled_sd <- sqrt(((group_stats$sd_score[1]^2)*(group_stats$n[1]-1) +
+                     (group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
+                    (sum(group_stats$n)-2))
+cohens_d <- mean_diff / pooled_sd
+
+cat("Cohen's d (DS1 separation):", round(cohens_d, 3), "\n")
+
+# --- Classification accuracy ---
+# Prepare data for LDA (all predictors as factors)
+lda_data <- data_dfa_durabilite_sp_bio %>%
+  dplyr::select(-ESPECE_nom)
+
+lda_fit <- lda(ESPECE_durabilite ~ ., data = lda_data)
+pred <- predict(lda_fit)$class
+
+conf_mat <- table(Predicted = pred, Actual = lda_data$ESPECE_durabilite)
+cat("Confusion matrix:\n")
+print(conf_mat)
+
+accuracy <- mean(pred == lda_data$ESPECE_durabilite)
+cat("Classification accuracy:", round(accuracy*100, 1), "%\n")
+
+
+##### GLM #####
+
+# --- 1. Prepare and Analyze Data ---
+# Chaining data preparation steps with pipes
+data_dfa_durabilite_sp_bio <- all_data %>%
+  dplyr::select(id, ESPECE_nom, CD_REF, ESPECE_durabilite, C, S, R, 
+                csr_simple, sp_relative_area, choix_type_bio) %>%
+  unique() %>%
+  na.omit() %>%
+  dplyr::select(-CD_REF, -id) %>%
+  mutate(
+    ESPECE_durabilite = fct_recode(ESPECE_durabilite,
+                                   "Sustainable" = "Durable",
+                                   "Non sustainable" = "Non durable"),
+    across(-c(C, S, R, sp_relative_area), as.factor)
+  )
+
+
+# --- 2. Fit Logistic Regression ---
+# Use a cleaner formula with the chosen predictor.
+# If you have multiple predictors, list them here, e.g., `y ~ x1 + x2`.
+
+glm_fit <- glm(ESPECE_durabilite ~ sp_relative_area + csr_simple + choix_type_bio,
+               data = data_glm,
+               family = binomial(link="logit"))
+summary(glm_fit)
+
+
+# --- 3. Get Odds Ratios and Contributions ---
+summary(glm_fit)$coefficients %>%
+  as.data.frame() %>%
+  mutate(
+    Odds_Ratio = exp(Estimate),
+    CI_low = exp(Estimate - 1.96 * `Std. Error`),
+    CI_high = exp(Estimate + 1.96 * `Std. Error`)
+  ) %>%
+  print()
+
+# --- 4. Evaluate Model Performance ---
+# Combine prediction and evaluation into a single, efficient chunk.
+# Use `predict()` to get a binary outcome directly for the `confusionMatrix`
+# and ensure levels are consistent.
+pred_probs <- predict(glm_fit, newdata = data_glm, type = "response")
+
+# Use the same factor levels and order as the actual data
+pred_class <- ifelse(pred_probs > 0.5, "Sustainable", "Non sustainable")
+pred_class <- factor(pred_class, levels = levels(data_glm$ESPECE_durabilite))
+
+conf_mat <- confusionMatrix(pred_class, data_glm$ESPECE_durabilite)
+print(conf_mat)
+
+# Extract and print accuracy directly.
+cat("Classification accuracy:", round(conf_mat$overall['Accuracy'] * 100, 1), "%\n")
+
+# --- 5. Visualisation ---
+# Use `predict()` on the original data for a clean plot data frame.
+data_glm %>%
+  mutate(Predicted_Prob = predict(glm_fit, type = "response")) %>%
+  ggplot(aes(x = Predicted_Prob, fill = ESPECE_durabilite)) +
+  geom_density(alpha = 0.5) +
+  labs(
+    title = "Predicted sustainability probabilities compared to true species status",
+    x = "Predicted probability of being Sustainable",
+    y = "Density",
+    fill = "Actual group"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Sustainable" = "darkgreen", "Non sustainable" = "red"))
+
