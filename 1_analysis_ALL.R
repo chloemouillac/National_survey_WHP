@@ -39,7 +39,7 @@ departements <- read_sf("raw_data/departements_detail_paris.shp") %>%
 
 process_data_helper_1 <- function(data, pattern_one, pattern_two, value_col_name) {
   data %>%
-    select(id = id__ID_de_la_reponse, 
+    dplyr::select(id = id__ID_de_la_reponse, 
            matches(paste0("^G\\d+Q0*", c(pattern_one, pattern_two), "_", collapse = "|"))) %>%
     mutate(across(-id, as.character)) %>%
     pivot_longer(
@@ -62,12 +62,12 @@ process_data_helper_1 <- function(data, pattern_one, pattern_two, value_col_name
     mutate(
       !!sym(value_col_name) := str_to_sentence(str_replace_all(str_remove(column_name, ".*____"), "_", " "))
     ) %>%
-    select(id, group, !!sym(value_col_name))
+    dplyr::select(id, group, !!sym(value_col_name))
 }
 
 process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name) {
   data %>%
-    select(id = id__ID_de_la_reponse, 
+    dplyr::select(id = id__ID_de_la_reponse, 
            matches(paste0("^G\\d+Q0*", c(pattern_one, pattern_two), "_", collapse = "|"))) %>%
     mutate(across(-id, as.character)) %>%
     pivot_longer(
@@ -104,10 +104,10 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     pivot_wider(names_from = type,
                 values_from = value) %>%
     
-    select(id, group, matches(value_col_name)) %>%
+    dplyr::select(id, group, matches(value_col_name)) %>%
     
     # Step to remove columns that are entirely NA
-    select(where(~ any(!is.na(.)))) %>%
+    dplyr::select(where(~ any(!is.na(.)))) %>%
     
     # Combine multiple rows with the same identifier into a single row
     group_by(id) %>%
@@ -120,12 +120,12 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
  process_all_species_data <- function(data) {
   # Columns related to species, departments, and harvester type
   species_cols <- data %>%
-    select(id__ID_de_la_reponse,
+    dplyr::select(id__ID_de_la_reponse,
            matches("^G(?:3|4|6|8|10|12|14|16|18|20)Q000(?:0)?(?:1|2|4|5|6|7|8|9|10|11|12|13|14|18|19|20|21|22|23|24)_")) # careful of the number of zeroes after Q
   
   df_long <- data %>%
     # Select all necessary columns at once
-    select(id = id__ID_de_la_reponse,
+    dplyr::select(id = id__ID_de_la_reponse,
            type_cueilleur = starts_with("G21Q00009_"),
            colnames(species_cols)) %>%
     
@@ -175,7 +175,7 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     ) %>%
     # Filter out irrelevant rows and select key columns
     filter(!is.na(type)) %>%
-    select(-qcode) %>%
+    dplyr::select(-qcode) %>%
     
     # Pivot wider to get species, presence, and etendue_cueill in columns
     pivot_wider(
@@ -309,11 +309,20 @@ combined_plot <- dpt_plot + region_plot +
 
 combined_plot
 
+
+# plot_zoom_png?width=658&height=355
+png("answer_coverage.png", 
+    width = 1974,     # pixels
+    height = 1065,   # pixels
+    res = 300)        # resolution in dpi
+combined_plot
+dev.off()
+
   
   #### Bar Plots: species from G2 section ####
 # Helper function for consistent bar plots
 plot_bar <- function(data, title, fill_var = NULL) {
-  p <- ggplot(data, aes(x = reorder(species, -table(species)[species]))) +
+  p <- ggplot(data, aes(x = reorder(nom, -table(nom)[nom]))) +
     labs(title = title, x = "Species", y = "Number of Citations") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1))
@@ -328,16 +337,16 @@ plot_bar <- function(data, title, fill_var = NULL) {
 
 # Bar plots for G2 section
 df_g2_bar <- raw_data %>%
-  select(matches("^G2Q0000(2|3|4|5)_SQ001"),
+  dplyr::select(matches("^G2Q0000(2|3|4|5)_SQ001"),
          id = id__ID_de_la_reponse,
          type_cueilleur=starts_with("G21Q00009_")) %>%
   pivot_longer(cols = matches("^G2Q0000(2|3|4|5)_SQ001"), 
                               names_to = "qcode",
                               names_pattern = "(^G\\d+Q\\d+)",
-                              values_to = "species") %>%
+                              values_to = "nom") %>%
   mutate(type_cueilleur = word(type_cueilleur, 1, 2)) %>%
-  filter(!is.na(species)) %>%
-  separate_rows(species, sep = ",\\s*") %>%
+  filter(!is.na(nom)) %>%
+  separate_rows(nom, sep = ",\\s*") %>%
   unique()
 
 plot_bar(df_g2_bar %>% filter(qcode == "G2Q00002"), 
@@ -359,7 +368,7 @@ departements_sans_accent <- read_sf("raw_data/departements_detail_paris.shp") %>
 answers_by_dpt <- df_all_species_data %>%
   full_join(departements_sans_accent, by = "dpt") %>% # we want the empty departements too!
   group_by(dpt, code, region, geometry) %>%
-  summarise(n = n_distinct(species, na.rm = T), .groups = "drop") %>%
+  summarise(n = n_distinct(nom, na.rm = T), .groups = "drop") %>%
   mutate(n = if_else(n == 0, NA_integer_, n)) %>%
   st_as_sf()
 
@@ -384,20 +393,20 @@ plot_durability_pro_bar <- function(data, n = 10) { # Add 'n' as a function argu
   
   # Calculate total citations per species and select the top n
   top_species <- data %>%
-    select(id, species, type_cueilleur) %>%
+    dplyr::select(id, nom, type_cueilleur) %>%
     filter(!is.na(type_cueilleur)) %>%
     unique() %>%
-    group_by(species) %>%
+    group_by(nom) %>%
     summarise(total_citations = n(), .groups = "drop") %>%
     slice_max(order_by = total_citations, n = n) %>%
-    pull(species)
+    pull(nom)
   
   # Filter the main data frame to include only the top species
   df_summary <- data %>%
-    select(id, species, durabilite, type_cueilleur) %>%
-    filter(!is.na(type_cueilleur) & species %in% top_species) %>%
+    dplyr::select(id, nom, durabilite, type_cueilleur) %>%
+    filter(!is.na(type_cueilleur) & nom %in% top_species) %>%
     unique() %>%
-    group_by(species, type_cueilleur, durabilite) %>%
+    group_by(nom, type_cueilleur, durabilite) %>%
     summarise(n = n(), .groups = "drop") %>%
     pivot_wider(
       names_from = durabilite,
@@ -412,7 +421,7 @@ plot_durability_pro_bar <- function(data, n = 10) { # Add 'n' as a function argu
     )
   
   # Plotting
-  ggplot(df_summary, aes(x = reorder(species, -total), y = count, fill = statut_durabilite)) +
+  ggplot(df_summary, aes(x = reorder(nom, -total), y = count, fill = statut_durabilite)) +
     geom_bar(position = "stack", stat = "identity") +
     facet_grid(type_cueilleur ~ ., scales = "free_y", space = "free_y") +
     scale_fill_manual(values = c("Durable" = "darkgreen", "Non durable" = "red")) +
@@ -437,23 +446,23 @@ plot_durability_pro_bar(df_all_species_data, n = 20)
 
   #### Bar Plot of all cited species ####
 plot_bar(df_all_species_data %>%
-           select(id, species, type_cueilleur) %>% 
+           dplyr::select(id, nom, type_cueilleur) %>% 
            unique(),
          "All cited species", "type_cueilleur")
 
 nrow(df_all_species_data %>%
-         select(species) %>% 
+         dplyr::select(nom) %>% 
          unique()) # 191 different cited species
 
   
   #### Maps for specific species ####
 # Data is already processed in `df_all_species_data`, now join with `departements`
 citations_by_species_dpt <- df_all_species_data %>%
-  select(id, species, durabilite, dpt) %>% 
+  dplyr::select(id, nom, durabilite, dpt) %>% 
   filter(!is.na(dpt) & dpt != "") %>%
   unique() %>%
   filter(!is.na(dpt) & dpt != "") %>%
-  group_by(dpt, species, durabilite) %>%
+  group_by(dpt, nom, durabilite) %>%
   summarise(n = n(), .groups = "drop") %>%
   pivot_wider(
     names_from = durabilite,
@@ -467,7 +476,7 @@ global_max_total <- max(citations_by_species_dpt$total_citations, na.rm = TRUE)
 
 plot_species_map <- function(species_name) {
   map_data <- departements_sans_accent %>%
-    left_join(citations_by_species_dpt %>% filter(species == species_name), by = "dpt") %>%
+    left_join(citations_by_species_dpt %>% filter(nom == species_name), by = "dpt") %>%
     st_as_sf() %>%
     mutate(prop_non_durable = ifelse(total_citations > 0, round(`Non durable` / total_citations * 100, 2), 0))
   
@@ -530,6 +539,8 @@ plot_species_map("Arnica montana")
 plot_species_map("Gentiana lutea")
 plot_species_map("Thymus vulgaris")
 plot_species_map("Euphorbia spinosa")
+plot_species_map("Rhodiola rosea")
+
 plot_species_map("Artemisia umbelliformis")
 plot_species_map("Sambucus nigra")
 plot_species_map("Vaccinium myrtillus")
@@ -543,7 +554,7 @@ plot_species_map("Narcissus pseudonarcissus")
 
 ##### Plot 1: Presence ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, presence) %>% 
+         dplyr::select(id, nom, durabilite, presence) %>% 
          filter(!is.na(presence)) %>%
          unique(), 
        aes(x = reorder(presence, -table(presence)[presence]), fill = durabilite)) +
@@ -560,7 +571,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 2: Harvesting extent ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, etendue_cueill) %>% 
+         dplyr::select(id, nom, durabilite, etendue_cueill) %>% 
          filter(!is.na(etendue_cueill)) %>%
          unique(),
        aes(x = reorder(etendue_cueill, -table(etendue_cueill)[etendue_cueill]), fill = durabilite)) +
@@ -577,7 +588,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 3: Harvested parts ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, parties_cueill) %>% 
+         dplyr::select(id, nom, durabilite, parties_cueill) %>% 
          filter(!is.na(parties_cueill)) %>%
          unique(),
        aes(x = reorder(parties_cueill, -table(parties_cueill)[parties_cueill]), fill = durabilite)) +
@@ -594,7 +605,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 4: Harvesting uses ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, usages) %>% 
+         dplyr::select(id, nom, durabilite, usages) %>% 
          filter(!is.na(usages)) %>%
          unique(),
        aes(x = reorder(usages, -table(usages)[usages]), fill = durabilite)) +
@@ -611,7 +622,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 5: Harvesting type (professional/ local) ####
 df_type_cueillette <- df_all_species_data %>%
-  select(id, species, type_cueillette_Cueillette_amatrice_familiale, type_cueillette_Cueillette_professionnelle, durabilite) %>%
+  dplyr::select(id, nom, type_cueillette_Cueillette_amatrice_familiale, type_cueillette_Cueillette_professionnelle, durabilite) %>%
   unique() %>%
   pivot_longer(cols = c(type_cueillette_Cueillette_amatrice_familiale, type_cueillette_Cueillette_professionnelle),
                names_to= "type_cueillette",
@@ -637,7 +648,7 @@ ggplot(df_type_cueillette,
 
 ##### Plot 6: Type of companies ####
 df_type_entrep <- df_all_species_data %>%
-  select(id, species, type_entrep_Microentreprises_lt_10_salaries, 
+  dplyr::select(id, nom, type_entrep_Microentreprises_lt_10_salaries, 
          type_entrep_PME_10_50_salaries,
          type_entrep_Grandes_entreprises_gt_50_salaries,
          durabilite) %>%
@@ -666,7 +677,7 @@ ggplot(df_type_entrep,
 
 ##### Plot 7: Start of observation ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, debut_obs) %>% 
+         dplyr::select(id, nom, durabilite, debut_obs) %>% 
          filter(!is.na(debut_obs)) %>%
          unique() %>%
          mutate(debut_obs = as.numeric(debut_obs)), 
@@ -683,7 +694,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 8: State of resource ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, etat_ressource) %>% 
+         dplyr::select(id, nom, durabilite, etat_ressource) %>% 
          filter(!is.na(etat_ressource)) %>%
          unique(), 
        aes(x = reorder(etat_ressource, -table(etat_ressource)[etat_ressource]), fill = durabilite)) +
@@ -700,7 +711,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 9: Variation of harvesting intensity ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, variation_prelev) %>% 
+         dplyr::select(id, nom, durabilite, variation_prelev) %>% 
          filter(!is.na(variation_prelev)) %>%
          unique(), 
        aes(x = reorder(variation_prelev, -table(variation_prelev)[variation_prelev]), fill = durabilite)) +
@@ -717,7 +728,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 10: Harvesting intensity ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, intensite_prelev) %>% 
+         dplyr::select(id, nom, durabilite, intensite_prelev) %>% 
          filter(!is.na(intensite_prelev)) %>%
          unique(), 
        aes(x = reorder(intensite_prelev, -table(intensite_prelev)[intensite_prelev]), fill = durabilite)) +
@@ -734,7 +745,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 11: Risk factors ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, risque) %>% 
+         dplyr::select(id, nom, durabilite, risque) %>% 
          filter(!is.na(risque)) %>%
          unique(), 
        aes(x = reorder(risque, -table(risque)[risque]))) +
@@ -750,7 +761,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 12: Trend effect ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, mode) %>% 
+         dplyr::select(id, nom, durabilite, mode) %>% 
          filter(!is.na(mode)) %>%
          unique(), 
        aes(x = reorder(mode, -table(mode)[mode]), fill = durabilite)) +
@@ -766,7 +777,7 @@ ggplot(df_all_species_data %>%
 
 
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, mode_risque) %>% 
+         dplyr::select(id, nom, durabilite, mode_risque) %>% 
          filter(!is.na(mode_risque)) %>%
          unique(), 
        aes(x = reorder(mode_risque, -table(mode_risque)[mode_risque]), fill = durabilite)) +
@@ -783,7 +794,7 @@ ggplot(df_all_species_data %>%
 
 ##### Plot 13: Regulations ####
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, espece_reglem) %>% 
+         dplyr::select(id, nom, durabilite, espece_reglem) %>% 
          filter(!is.na(espece_reglem)) %>%
          unique(), 
        aes(x = reorder(espece_reglem, -table(espece_reglem)[espece_reglem]), fill = durabilite)) +
@@ -798,7 +809,7 @@ ggplot(df_all_species_data %>%
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, reglem_adaptee) %>% 
+         dplyr::select(id, nom, durabilite, reglem_adaptee) %>% 
          filter(!is.na(reglem_adaptee)) %>%
          unique(), 
        aes(x = reorder(reglem_adaptee, -table(reglem_adaptee)[reglem_adaptee]), fill = durabilite)) +
@@ -813,7 +824,7 @@ ggplot(df_all_species_data %>%
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 ggplot(df_all_species_data %>% 
-         select(id, species, durabilite, cause_reglem_inadaptee) %>% 
+         dplyr::select(id, nom, durabilite, cause_reglem_inadaptee) %>% 
          filter(!is.na(cause_reglem_inadaptee)) %>%
          unique(), 
        aes(x = reorder(cause_reglem_inadaptee, -table(cause_reglem_inadaptee)[cause_reglem_inadaptee]), fill = durabilite)) +
@@ -840,12 +851,12 @@ ggplot(df_all_species_data %>%
 process_all_profile_data <- function(data) {
   # Columns related to species, departments, and harvester type
   species_cols <- data %>%
-    select(id__ID_de_la_reponse,
+    dplyr::select(id__ID_de_la_reponse,
            matches("G21")) # careful of the number of zeroes after Q
   
   df_long <- data %>%
     # Select all necessary columns at once
-    select(id = id__ID_de_la_reponse,
+    dplyr::select(id = id__ID_de_la_reponse,
            colnames(species_cols)) %>%
     
     # Pivot to long format for easier manipulation
@@ -876,7 +887,7 @@ process_all_profile_data <- function(data) {
       ) %>%
     
     filter(!is.na(type)) %>%
-    select(-qcode) %>%
+    dplyr::select(-qcode) %>%
 
     # Pivot wider to get species, presence, and etendue_cueill in columns
     pivot_wider(
@@ -886,6 +897,14 @@ process_all_profile_data <- function(data) {
     ) %>%
 
     unnest(everything()) %>%
+    
+    mutate(
+      statut_cueilleur = case_when(
+        str_detect(statut_cueilleur, "loisir")  ~ "Amateur",
+        str_detect(statut_cueilleur, "revenus") ~ "Professionnel",
+        TRUE ~ statut_cueilleur),
+      statut_cueilleur = if_else(cueilleur == "Non", "Non cueilleur", statut_cueilleur)
+    )  %>% 
     
     # Keep only one record per ID, species, and group to avoid double-counting
     unique()
@@ -901,7 +920,7 @@ process_all_profile_data <- function(data) {
     left_join(df_categ_socio_pro, by = c("id", "group")) %>%
     left_join(df_type_orga_rattach, by = c("id", "group")) %>%
     
-  select(-group) 
+    dplyr::select(-group) 
 
   return(df_final)
 }
@@ -912,37 +931,54 @@ df_all_profile_data <-  process_all_profile_data(raw_data)
 
 
 ##### Plot 1: Gender ####
-ggplot(df_all_profile_data %>% 
-         select(id, genre) %>% 
+gender <- ggplot(df_all_profile_data %>% 
+         dplyr::select(id, genre) %>% 
          filter(!is.na(genre)) %>%
          unique(), 
        aes(x = reorder(genre, -table(genre)[genre]))) +
   geom_bar() +
   labs(
-    title = "What is your gender ?",
+    title = "Genre",
     y = "Number of responses",
     x = "") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+png("gender.png", 
+    width = 999,     # pixels
+    height = 999,   # pixels
+    res = 300)        # resolution in dpi
+gender
+dev.off()
+
 
 ##### Plot 2: Age ####
-ggplot(df_all_profile_data %>% 
-         select(id, age) %>% 
+age <- ggplot(df_all_profile_data %>% 
+         dplyr::select(id, age) %>% 
          filter(!is.na(age)) %>%
          unique(), 
        aes(x = reorder(age, -table(age)[age]))) +
   geom_bar() +
   labs(
-    title = "What is your age ?",
+    title = "Age",
     y = "Number of responses",
     x = "") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+
+png("age.png", 
+    width = 999,     # pixels
+    height = 999,   # pixels
+    res = 300)        # resolution in dpi
+age
+dev.off()
+
+
+
 ##### Plot 3: Studies ####
 ggplot(df_all_profile_data %>% 
-         select(id, niveau_educ) %>% 
+         dplyr::select(id, niveau_educ) %>% 
          filter(!is.na(niveau_educ)) %>%
          unique(), 
        aes(x = reorder(niveau_educ, -table(niveau_educ)[niveau_educ]))) +
@@ -956,7 +992,7 @@ ggplot(df_all_profile_data %>%
 
 
 ggplot(df_all_profile_data %>% 
-         select(id, etudes_evt) %>% 
+         dplyr::select(id, etudes_evt) %>% 
          filter(!is.na(etudes_evt)) %>%
          unique(), 
        aes(x = reorder(etudes_evt, -table(etudes_evt)[etudes_evt]))) +
@@ -971,7 +1007,7 @@ ggplot(df_all_profile_data %>%
 
 ##### Plot 4: CSP ####
 ggplot(df_all_profile_data %>% 
-         select(id, categ_socio_pro) %>% 
+         dplyr::select(id, categ_socio_pro) %>% 
          filter(!is.na(categ_socio_pro)) %>%
          unique(), 
        aes(x = reorder(categ_socio_pro, -table(categ_socio_pro)[categ_socio_pro]))) +
@@ -986,7 +1022,7 @@ ggplot(df_all_profile_data %>%
 
 ##### Plot 5: Do you harvest wild plants ? ####
 ggplot(df_all_profile_data %>% 
-         select(id, cueilleur) %>% 
+         dplyr::select(id, cueilleur) %>% 
          filter(!is.na(cueilleur)) %>%
          unique(), 
        aes(x = reorder(cueilleur, -table(cueilleur)[cueilleur]))) +
@@ -1000,7 +1036,7 @@ ggplot(df_all_profile_data %>%
 
 
 ggplot(df_all_profile_data %>% 
-         select(id, debut_cueill) %>% 
+         dplyr::select(id, debut_cueill) %>% 
          filter(!is.na(debut_cueill)) %>%
          unique(), 
        aes(x = reorder(debut_cueill, -table(debut_cueill)[debut_cueill]))) +
@@ -1014,7 +1050,7 @@ ggplot(df_all_profile_data %>%
 
 
 ggplot(df_all_profile_data %>% 
-         select(id, nb_esp_cueill) %>% 
+         dplyr::select(id, nb_esp_cueill) %>% 
          filter(!is.na(nb_esp_cueill)) %>%
          unique(), 
        aes(x = reorder(nb_esp_cueill, -table(nb_esp_cueill)[nb_esp_cueill]))) +
@@ -1028,22 +1064,31 @@ ggplot(df_all_profile_data %>%
 
 
 ##### Plot 6: Harvester status ####
-ggplot(df_all_profile_data %>% 
-         select(id, statut_cueilleur) %>% 
+harv_status <- ggplot(df_all_profile_data %>% 
+         dplyr::select(id, statut_cueilleur) %>% 
          filter(!is.na(statut_cueilleur)) %>%
          unique(), 
        aes(x = reorder(statut_cueilleur, -table(statut_cueilleur)[statut_cueilleur]))) +
   geom_bar() +
   labs(
-    title = "What type of harvester are you ?",
+    title = "Type de cueilleur",
     y = "Number of responses",
     x = "") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+# plot_zoom_png?width=333&height=332
+png("harvester_status.png", 
+    width = 999,     # pixels
+    height = 999,   # pixels
+    res = 300)        # resolution in dpi
+harv_status
+dev.off()
+
+
 
 ggplot(df_all_profile_data %>% 
-         select(id, statut_cueilleur_entrep) %>% 
+         dplyr::select(id, statut_cueilleur_entrep) %>% 
          filter(!is.na(statut_cueilleur_entrep)) %>%
          unique(), 
        aes(x = reorder(statut_cueilleur_entrep, -table(statut_cueilleur_entrep)[statut_cueilleur_entrep]))) +
@@ -1058,7 +1103,7 @@ ggplot(df_all_profile_data %>%
 
 ##### Plot 7: Harvester group ####
 ggplot(df_all_profile_data %>% 
-         select(id, groupe_cueill) %>% 
+         dplyr::select(id, groupe_cueill) %>% 
          filter(!is.na(groupe_cueill)) %>%
          unique(), 
        aes(x = reorder(groupe_cueill, -table(groupe_cueill)[groupe_cueill]))) +
@@ -1072,7 +1117,7 @@ ggplot(df_all_profile_data %>%
 
 
 ggplot(df_all_profile_data %>% 
-         select(id, nom_groupe_cueill) %>% 
+         dplyr::select(id, nom_groupe_cueill) %>% 
          filter(!is.na(nom_groupe_cueill)) %>%
          unique(), 
        aes(x = reorder(nom_groupe_cueill, -table(nom_groupe_cueill)[nom_groupe_cueill]))) +
@@ -1086,22 +1131,33 @@ ggplot(df_all_profile_data %>%
 
 
 ##### Plot 8: Organism ####
-ggplot(df_all_profile_data %>% 
-         select(id, type_orga_rattach) %>% 
+organism <- ggplot(df_all_profile_data %>% 
+         dplyr::select(id, type_orga_rattach) %>% 
          filter(!is.na(type_orga_rattach)) %>%
          unique(), 
        aes(x = reorder(type_orga_rattach, -table(type_orga_rattach)[type_orga_rattach]))) +
   geom_bar() +
   labs(
-    title = "What organism do you belong to ?",
+    title = "Organisme de rattachement",
     y = "Number of responses",
     x = "") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_x_discrete(labels = function(x) gsub("\\s*\\(.*?\\)", "", x))  # remove brackets and content
+
+organism
+
+# plot_zoom_png?width=317&height=721
+png("organism.png", 
+    width = 951,     # pixels
+    height = 2163,   # pixels
+    res = 300)        # resolution in dpi
+organism
+dev.off()
 
 
 ggplot(df_all_profile_data %>% 
-         select(id, taille_orga_rattach) %>% 
+         dplyr::select(id, taille_orga_rattach) %>% 
          filter(!is.na(taille_orga_rattach)) %>%
          unique(), 
        aes(x = reorder(taille_orga_rattach, -table(taille_orga_rattach)[taille_orga_rattach]))) +

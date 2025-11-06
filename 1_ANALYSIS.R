@@ -1,6 +1,7 @@
 #### Load packages ####
 library(dplyr)
 library(ggplot2)
+library(ggnewscale)
 library(tidyr)
 library(stringr)
 library(sf)
@@ -20,6 +21,10 @@ library(MASS)
 library(glmnet)
 library(tibble)
 library(cluster)
+library(readr)
+library(caret)
+library(pROC)
+
 
 #### Import data ####
 raw_data <- read.csv("raw_data/results-survey676868_prefilter.csv")
@@ -115,9 +120,23 @@ plot_massifs <- ggplot() +
   geom_sf(data = departements_simpl_PARIS, 
           aes(fill=massif), colour="white")+
   ggtitle(label="Massifs de cueillette") +
-  scale_fill_manual(values=c("#004949","#009292","#490092",
-                      "#ff6db6","#006ddb","#b66dff","#6db6ff","#b6dbff",
-                      "#920000","#db6d00","#ffff6d")) +
+  scale_fill_manual(values=
+                      # c("#004949","#009292","#490092",
+                      # "#ff6db6","#006ddb","#b66dff","#6db6ff","#b6dbff",
+                      # "#920000","#db6d00","#ffff6d")
+                    c(
+                      "#003f5c",  # deep midnight blue
+                      "#2f4b7c",  # muted violet
+                      "#665191",  # slate purple
+                      "#a05195",  # mauve‑magenta
+                      "#d45087",  # rose‑dust
+                      "#f95d6a",  # coral
+                      "#ff7c43",  # burnt orange
+                      "#ffa600",  # warm gold
+                      "#7ac667",  # soft green
+                      "#4ac3a7",  # teal‑cyan
+                      "#00bfae"),   # bright teal)
+                    ) +
   theme(axis.text.x=element_blank(),
         axis.ticks.x=element_blank(),
         axis.text.y=element_blank(),
@@ -125,6 +144,17 @@ plot_massifs <- ggplot() +
         panel.background = element_blank())
 
 plot_massifs
+
+
+# plot_zoom_png?width=777&height=640
+png("massifs_cueillette.png", 
+    width = 2331,     # pixels
+    height = 1920,   # pixels
+    res = 300)        # resolution in dpi
+plot_massifs
+dev.off()
+
+
 
 #### Prepare main data frame ####
 
@@ -535,6 +565,19 @@ all_data <- df_profile_renamed %>%
   mutate(across(-c(id, ESPECE_nom, CD_REF, C, S, R, sp_relative_area, sp_area), as.factor))
 
 
+#### Calculated % of species identified at the genus level and not-plant species ####
+corresp_species <- read.csv("corresp_species.csv")
+all_data_corresp <- all_data %>%
+  left_join(corresp_species %>% 
+              dplyr::select(ESPECE_nom, Commentaire),
+            by="ESPECE_nom") 
+
+number_non_plant <- all_data_corresp[all_data_corresp$Commentaire %in% c("Champignon", "Algue", "Lichen"),]
+number_genus <- all_data_corresp[is.na(all_data_corresp$CD_REF) &
+                                              !(all_data_corresp$Commentaire %in% c("Champignon", "Algue", "Lichen")),]
+# non plants : 27/1117=2.4%
+# geneus level : 41/1117=3.7%
+
 #### Bar Plot of all cited species (only >1 citation) ####
 df_species <- all_data %>%
   dplyr::select(id, ESPECE_nom) %>%
@@ -543,18 +586,35 @@ df_species <- all_data %>%
   count(ESPECE_nom, name = "citations") %>%
   filter(citations > 1)
 
-ggplot(df_species, aes(y = fct_reorder(ESPECE_nom, citations), x = citations)) +
+# Identify top 10 species by citations
+top10_species <- df_species %>%
+  top_n(10, citations) %>%
+  pull(ESPECE_nom)
+
+# Plot
+all_cited <- ggplot(df_species, aes(x = fct_reorder(ESPECE_nom, -citations), y = citations)) +
   geom_col() +
+  scale_x_discrete(labels = function(x) ifelse(x %in% top10_species, x, "")) +
   labs(
     title = "Amount of citations per species",
-    subtitle = paste("Showing only species cited more than once (", nrow(df_species), "of 172 species )"),
-    x = "Citation count",
-    y = "Species name"
+    subtitle = paste("Showing only species cited more than once (", nrow(df_species), " of 172 species )"),
+    x = "",
+    y = "Citation count"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
 # 172 different cited species
+
+# plot_zoom_png?width=967&height=661
+png("all_cited.png", 
+    width = 2901,     # pixels
+    height = 1983,   # pixels
+    res = 300)        # resolution in dpi
+all_cited
+dev.off()
+
 
 
 #### Species durability diverging plot ####
@@ -563,8 +623,9 @@ plot_durability_diverging <- function(data, n = 10) {
   
   # Top n species by total citations
   top_species <- data %>%
-    count(ESPECE_nom, PROFIL_statut_cueilleur, name = "cit") %>%
-    filter(!is.na(PROFIL_statut_cueilleur)) %>%
+    filter(!is.na(CD_REF)) %>%
+    dplyr::select(ESPECE_nom, id) %>%
+    unique() %>%
     count(ESPECE_nom, name = "total_citations") %>%
     slice_max(total_citations, n = n) %>%
     pull(ESPECE_nom)
@@ -611,7 +672,86 @@ plot_durability_diverging <- function(data, n = 10) {
       plot.title = element_text(hjust = 0.5)
     )
 }
-plot_durability_diverging(all_data %>% filter(!is.na(ESPECE_nom)), n = 40)
+plot_durability_diverging(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
+
+# plot_zoom_png?width=715&height=550
+png("durability_diverging.png", 
+    width = 2145,     # pixels
+    height = 1650,   # pixels
+    res = 300)        # resolution in dpi
+
+# Your plot code
+plot_durability_diverging(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
+
+# Close the device
+dev.off()
+
+
+
+plot_durability_ratio <- function(data, n = 10) {
+  
+  # Top n species by total citations
+  top_species <- data %>%
+    filter(!is.na(CD_REF)) %>%
+    dplyr::select(ESPECE_nom, id) %>%
+    unique() %>%
+    count(ESPECE_nom, name = "total_citations") %>%
+    slice_max(total_citations, n = n) %>%
+    pull(ESPECE_nom)
+  
+  # Summarise counts + ratio
+  df_summary <- data %>%
+    filter(ESPECE_nom %in% top_species) %>%
+    distinct(id, ESPECE_nom, ESPECE_durabilite) %>%
+    count(ESPECE_nom, ESPECE_durabilite) %>%
+    group_by(ESPECE_nom) %>%
+    mutate(
+      total_citations = sum(n),
+      ratio_non_durable = sum(n[ESPECE_durabilite == "Non durable"], na.rm = TRUE) / sum(n)
+    ) %>%
+    summarise(
+      ratio_non_durable = unique(ratio_non_durable),
+      total_citations = unique(total_citations),
+      .groups = "drop"
+    ) %>%
+    arrange(ratio_non_durable) %>%
+    mutate(ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)))
+  
+  # Dot plot
+  ggplot(df_summary, aes(x = ratio_non_durable, y = ESPECE_nom, size = total_citations)) +
+    geom_point(color = "darkred", alpha = 0.6) +
+    scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+    scale_size_area(max_size = 10, breaks = c(10, 30, 50, 70, 90)) +
+  labs(
+      title = paste("Ratio of non-sustainable citations for the", n, "most cited species"),
+      x = "Ratio of non-sustainable citations",
+      y = "Species",
+      size = "Number of citations"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(hjust = 0.5)
+    )
+}
+
+# Example call
+plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
+
+
+# plot_zoom_png?width=715&height=550
+png("durability_ratio.png", 
+    width = 2145,     # pixels
+    height = 1650,   # pixels
+    res = 300)        # resolution in dpi
+
+# Your plot code
+plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
+
+# Close the device
+dev.off()
+
+
 
 
 
@@ -726,7 +866,7 @@ data_enjeux <- all_rarity %>%
     # Number of departments where the species has been cited in
     nb_cited = sum(total_answers_all > 0),
     # Number of departements where the species is present
-    n_present = sum(sp_relative_area > 0),
+    n_present = sum(sp_relative_area > 20), #############################
     # Number of departements where the species is present and has at least 1 answer
     n_present_and_answer = sum(sp_relative_area > 0 &
                                  total_answers_all > 0),
@@ -787,57 +927,153 @@ data_enjeux_general <- data_enjeux %>%
   mutate(across(c(non_durable_ratio1, non_durable_ratio2,
                   answer_coverage_harv_area, answer_coverage_dpt),
                 ~ round(.x, 1))
-         ) %>%
-  # Keep only the species that have been cited at least twice
-  filter(total_answers_all > 1)
+         )
+
+
+#### Clustering ####
+# Suppose your data frame is something like:
+# df: columns = Species, NumCitations, GeoCoverage, DurabilityRatio
+
+# 1. Select numeric columns for clustering
+dat <- data_enjeux_general[, c("non_durable_ratio1", "answer_coverage_dpt", "total_answers_all")]
+
+# 2. Scale the data (important!)
+dat_scaled <- scale(dat)
+
+# 3. Decide number of clusters (elbow method)
+wss <- sapply(1:10, function(k){
+  kmeans(dat_scaled, k, nstart = 25)$tot.withinss
+})
+
+plot(1:10, wss, type = "b",
+     xlab = "Number of clusters K",
+     ylab = "Total within-clusters sum of squares")
+
+# from the plot, choose K (for example K = 3)
+
+# 4. Run k-means
+set.seed(123)
+km <- kmeans(dat_scaled, centers = 4, nstart = 25)
+
+# 5. Add cluster membership back to original df
+data_enjeux_general$cluster <- km$cluster
+
+# 6. Summary of each cluster
+aggregate(data_enjeux_general[, c("non_durable_ratio1", "answer_coverage_dpt", "total_answers_all")],
+          by = list(cluster = data_enjeux_general$cluster),
+          FUN = mean)
+
+
+data_enjeux_general %>%
+  group_by(cluster) %>%
+  summarise(
+    n_species = n(),
+    mean_citations = mean(total_answers_all),
+    sd_citations = sd(total_answers_all),
+
+    mean_geo = mean(answer_coverage_dpt),
+    sd_geo = sd(answer_coverage_dpt),
+
+    mean_durability = mean(non_durable_ratio1),
+    sd_durability = sd(non_durable_ratio1),
+
+  )
+
+
+sil <- silhouette(km$cluster, dist(dat_scaled))
+summary(sil)
+plot(sil)
+
+sil_df <- data.frame(cluster = km$cluster, sil_width = sil[, 3])
+
+aggregate(sil_width ~ cluster, data = sil_df, mean)
+
+cluster_1_species <- data_enjeux_general[data_enjeux_general$cluster == 1, "ESPECE_nom"]
+cluster_2_species <- data_enjeux_general[data_enjeux_general$cluster == 2, "ESPECE_nom"]
+cluster_3_species <- data_enjeux_general[data_enjeux_general$cluster == 3, "ESPECE_nom"]
+cluster_4_species <- data_enjeux_general[data_enjeux_general$cluster == 4, "ESPECE_nom"]
 
 
 
-data_enjeux_general_plot <- function(data, ratio, xlab) {
+#### Plot ####
+data_enjeux_general_plot <- function(data, ratio, xlab, top_n_species = 10) {
+  # 
+  # data <- data %>%
+  #   # Reorder species by ratio for plotting
+  #   arrange({{ ratio }}, answer_coverage_dpt, total_answers_all) %>%
+  #   mutate(ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)))
+  
+  # Select top N species by ratio
   data <- data %>%
-    # Reorder species for better plotting
-    arrange({{ ratio }}, answer_coverage_dpt, total_answers_all) %>%
-    mutate(ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)))
+    # Keep only top N species with highest ratio
+    arrange(desc({{ ratio }}), desc(answer_coverage_dpt), desc(total_answers_all)) %>%
+    slice_head(n = top_n_species) %>%
+    # Reorder factor for plotting
+    mutate(ESPECE_nom = factor(ESPECE_nom, levels = rev(ESPECE_nom)))
   
   
   ggplot(data, aes(x = {{ ratio }},
                    y = ESPECE_nom,
                    colour = answer_coverage_dpt,
                    size = total_answers_all)) +
-
     geom_point() +
-    
+    # geom_text(aes(label = total_answers_all),
+    # geom_text(aes(label = answer_coverage_dpt),
+    #           hjust = 0, vjust = 0.5, size = 3) +
     scale_color_gradient(
-      low = "#fc9272",   # medium red
-      high = "#67000d"   # dark red
-    )+
-    
-    labs(
-      title = "Proportion of unsustainable assessments across species",
-      x = xlab,
-      y = "Species names",
-      size = "Total number of citations",
-      colour = "Answer coverage (% of departments\nwith species that provided citations)"
+      low = "#fc9272",
+      high = "#67000d"
     ) +
-    theme_minimal(base_size = 13) +
+    labs(
+      # title = "Proportion of unsustainable assessments across species",
+      x = xlab,
+      y = "",
+      size = "Total number of citations",
+      colour = "Geographical response coverage\n(% of departments within species’ range)"
+    ) +
+    theme_minimal(base_size = 11) +
     theme(
       axis.text.y = element_text(size = 9),
       legend.position = "right"
     )
 }
 
+data_enjeux_general_filter <- data_enjeux_general %>%
+  # Keep only the species that have been cited at least twice
+  filter(total_answers_all > 2, answer_coverage_dpt>10)
+
+data_enjeux_general_filter <- data_enjeux_general %>%
+  # Keep only the species that have been cited at least twice
+  filter(answer_coverage_dpt>20)
+
+data_enjeux_general_plot(data_enjeux_general_filter, non_durable_ratio1, 
+                         xlab="'Unsustainable' citations (%)", 100)
+data_enjeux_general_plot(data_enjeux_general_filter, non_durable_ratio2, 
+                         xlab="Harvesting areas with ≥1 'unsustainable' response (%)", 20)
+
+
+# plot_zoom_png?width=730&height=421
+png("enjeux_general.png", 
+    width = 2190,     # pixels
+    height = 1263,   # pixels
+    res = 300)        # resolution in dpi
+
+# Your plot code
 data_enjeux_general_plot(data_enjeux_general, non_durable_ratio1, 
-                         xlab="'Unsustainable responses' (%)")
-data_enjeux_general_plot(data_enjeux_general, non_durable_ratio2, 
-                         xlab="Harvesting areas with ≥1 'unsustainable' response (%)")
+                         xlab="'Unsustainable' citations (%)", 20)
+# Close the device
+dev.off()
 
 
 
+prop_over_50_non_sust <- length(data_enjeux_general$ESPECE_nom[data_enjeux_general$non_durable_ratio1>50]) /
+  length(data_enjeux_general$ESPECE_nom)
+  
 
 data_enjeux_panel_plot <- function(data, ratio, xlab) {
   data <- data %>%
     # Keep only the species that have been cited at least twice in the harvesting area
-    filter(total_answers_all > 1) %>%
+    filter(total_answers_all > 2) %>%
     # Reorder species for better plotting
     group_by(massif) %>%
     arrange({{ ratio }}, answer_coverage, total_answers_all) %>%
@@ -847,22 +1083,15 @@ data_enjeux_panel_plot <- function(data, ratio, xlab) {
   
   ggplot(data, aes(x = {{ ratio }},  
                    y = reorder_within(ESPECE_nom, order_id, massif),
-                   colour = answer_coverage,
                    size = total_answers_all)) +
     
     geom_point() +
-    
-    scale_color_gradient(
-      low = "#fc9272",   # medium red
-      high = "#67000d"   # dark red
-    ) +
     
     labs(
       title = "Proportion of unsustainable assessments across species and harvesting areas",
       x = xlab,
       y = "Species names",
       size = "Total number of citations",
-      colour = "Answer coverage (% of departments\nwith species that provided citations)"
     ) +
     
     facet_wrap(~massif, scales = "free_y") +
@@ -912,6 +1141,8 @@ rarity$ESPECE_presence <- factor(rarity$ESPECE_presence, levels = ordre_presence
 ##### Dunn's test for pairwise comparisons ####
 dunn_result <- rarity %>%
   rstatix::dunn_test(sp_relative_area ~ ESPECE_presence, p.adjust.method = "bonferroni")
+print(dunn_result)
+
 
 ##### Plot ####
 ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
@@ -941,6 +1172,34 @@ ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
   )
 
 
+##### Estimates and CI ####
+library(dplyr)
+library(purrr)
+library(boot)
+
+# function to bootstrap the median
+boot_median <- function(data, indices) {
+  median(data[indices], na.rm = TRUE)
+}
+
+# compute bootstrapped CI for each group
+set.seed(123)  # for reproducibility
+boot_results <- rarity %>%
+  group_by(ESPECE_presence) %>%
+  summarise(
+    n = n(),
+    median = median(sp_relative_area, na.rm = TRUE),
+    CI_low = {
+      b <- boot(sp_relative_area, boot_median, R = 2000)
+      boot.ci(b, type = "perc")$percent[4]
+    },
+    CI_high = {
+      b <- boot(sp_relative_area, boot_median, R = 2000)
+      boot.ci(b, type = "perc")$percent[5]
+    }
+  )
+
+print(boot_results)
 
 #### Multivariate : participant profiles ####
 ##### Prepare data ###
@@ -1034,6 +1293,15 @@ plot_MCA_with_vars <- plot_MCA_particip +
 
 plot_MCA_with_vars
 
+# plot_zoom_png?width=861&height=641
+png("profile_MCA.png", 
+    width = 2583,     # pixels
+    height = 1923,   # pixels
+    res = 300)        # resolution in dpi
+plot_MCA_with_vars
+dev.off()
+
+
 
 ##### Analyse performance #####
 # Calculate the distance matrix based on the MCA coordinates
@@ -1072,15 +1340,32 @@ names(d) <- c("id", "species", "harvest_area", "sustainability", "respondent_pro
 
 d$sustainability <- ifelse(d$sustainability == "Durable", 1, 0)
 
-model1 <- glmer(sustainability ~ respondent_profile + (1|harvest_area) + (1|species),
+model1 <- glmer(sustainability ~ respondent_profile + (1|species), # + (1|harvest_area)
             data = d, family = binomial)
-summary(model1)
+summary(model1) # harvest area has very little effect, can be removed
 
 
 model2 <- glmer(sustainability ~ respondent_profile + (1|species:harvest_area), # most adapted ?
                data = d, family = binomial)
 summary(model2)
 
+
+# Count number of respondents per species and profile
+species_profile_counts <- table(d$species, d$respondent_profile)
+species_profile_counts
+# Identify species with any profile < 3 observations
+sparse_species <- rownames(species_profile_counts)[apply(species_profile_counts, 1, function(x) any(x < 2))]
+sparse_species
+d_subset <- d[!d$species %in% sparse_species, ]
+model_subset <- glmer(
+  # sustainability ~ respondent_profile + (1 | species),
+  sustainability ~ respondent_profile + (1 | species:harvest_area),
+  
+  data = d_subset,
+  family = binomial
+)
+
+summary(model_subset)
 
 ##### Unsustainable known VS respondent profile ####
 # Barplot
@@ -1158,7 +1443,7 @@ plot_data <- data.frame(
   group = grouping_factor
 )
 
-ggplot(plot_data, aes(x = score_dfa, fill = group)) +
+DFA_distrib <- ggplot(plot_data, aes(x = score_dfa, fill = group)) +
   geom_density(alpha = 0.5) +
   labs( title = "Species distribution by sustainability status",
        x = "Discriminant Axis 1",
@@ -1166,6 +1451,17 @@ ggplot(plot_data, aes(x = score_dfa, fill = group)) +
        fill = "Sustainability perception") +
   theme_minimal() +
   scale_fill_manual(values = c("Sustainable" = "darkgreen", "Non sustainable" = "red"))
+
+
+# plot_zoom_png?width=535&height=408
+png("distrib_DFA.png", 
+    width = 1605,     # pixels
+    height = 1224,   # pixels
+    res = 300)        # resolution in dpi
+DFA_distrib
+dev.off()
+
+
 
 # --- Get Contributions ---
 correlations <- as.data.frame(res.dfa$va)
@@ -1175,6 +1471,46 @@ sorted_correlations <- correlations[order(abs(correlations$CS1), decreasing = TR
 top_contributors <- head(sorted_correlations, 10)
 
 print(top_contributors)
+
+
+# Prepare contributions dataframe
+var_contrib <- correlations %>%
+  rownames_to_column(var = "Variable") %>%
+  dplyr::rename(Coefficient = CS1) %>%
+  arrange(Coefficient) %>%
+  mutate(Influence = ifelse(Coefficient > 0, "Non sustainable", "Sustainable"))
+
+# Optional: Top 20 contributors by absolute value
+top_var_contrib <- var_contrib %>%
+  slice_max(order_by = abs(Coefficient), n = 20)
+
+# Diverging bar plot
+var_contrib <- ggplot(top_var_contrib, aes(x = reorder(Variable, Coefficient), y = Coefficient, fill = Influence)) +
+  geom_col(width = 0.7) +
+  coord_flip() +
+  scale_fill_manual(values = c("Non sustainable" = "red", "Sustainable" = "darkgreen")) +
+  geom_hline(yintercept = 0, color = "black") +
+  labs(title = "20 highest variable contributions",
+       x = "Variable",
+       y = "DFA Coefficient",
+       fill = "Direction") +
+  theme_minimal(base_size = 14)  +
+  scale_x_discrete(labels = function(x) {
+    x %>%
+      gsub("ESPECE_", "", .) %>%   # remove prefix
+      gsub("\\.\\.", " ", .) %>%   # replace ".." with space
+      gsub("\\.", " ", .)           # replace "." with space
+  })
+
+
+# plot_zoom_png?width=865&height=495
+png("var_contrib_DFA.png", 
+    width = 2595,     # pixels
+    height = 1485,   # pixels
+    res = 300)        # resolution in dpi
+var_contrib
+dev.off()
+
 
 
 
@@ -1228,7 +1564,11 @@ data_dfa_durabilite_sp_bio <- all_data %>%
     "Non sustainable" = "Non durable"
   ))
 
-active_vars <- data_dfa_durabilite_sp_bio %>%
+data_dfa_durabilite_sp_bio_summar <- data_dfa_durabilite_sp_bio %>%
+  group_by(ESPECE_nom, ESPECE_durabilite) %>%
+  summarise(count=n(), csr_simple=first(csr_simple), choix_type_bio=first(choix_type_bio))
+
+active_vars <- data_dfa_durabilite_sp_bio %>%active_vars <- data_dfa_durabchoix_type_bioilite_sp_bio %>%
   dplyr::select(-ESPECE_durabilite, -ESPECE_nom)
 
 grouping_factor <- data_dfa_durabilite_sp_bio$ESPECE_durabilite
@@ -1307,6 +1647,8 @@ data_dfa_durabilite_sp_bio <- all_data %>%
     ESPECE_durabilite = fct_recode(ESPECE_durabilite,
                                    "Sustainable" = "Durable",
                                    "Non sustainable" = "Non durable"),
+    # Now explicitly set reference level:
+    ESPECE_durabilite = relevel(ESPECE_durabilite, ref = "Non sustainable"),
     across(-c(C, S, R, sp_relative_area), as.factor)
   )
 
@@ -1316,7 +1658,7 @@ data_dfa_durabilite_sp_bio <- all_data %>%
 # If you have multiple predictors, list them here, e.g., `y ~ x1 + x2`.
 
 glm_fit <- glm(ESPECE_durabilite ~ sp_relative_area + csr_simple + choix_type_bio,
-               data = data_glm,
+               data = data_dfa_durabilite_sp_bio,
                family = binomial(link="logit"))
 summary(glm_fit)
 
@@ -1335,21 +1677,45 @@ summary(glm_fit)$coefficients %>%
 # Combine prediction and evaluation into a single, efficient chunk.
 # Use `predict()` to get a binary outcome directly for the `confusionMatrix`
 # and ensure levels are consistent.
-pred_probs <- predict(glm_fit, newdata = data_glm, type = "response")
+pred_probs <- predict(glm_fit, newdata = data_dfa_durabilite_sp_bio, type = "response")
 
+# Find optimal threshold by calculating ROC+AUC
+roc_obj <- roc(
+  data_dfa_durabilite_sp_bio$ESPECE_durabilite,
+  pred_probs,
+  levels = c("Non sustainable", "Sustainable"),
+  direction = "<"
+)
+
+auc_value <- auc(roc_obj)
+print(auc_value)
+
+
+opt_coords <- coords(
+  roc_obj,
+  x = "best",
+  best.method = "youden",
+  ret = c("threshold", "sensitivity", "specificity")
+)
+opt_coords
+opt_thresh <- as.numeric(opt_coords["threshold"])
+print(opt_thresh)
+
+# Evaluate model performance using optimal threshold
 # Use the same factor levels and order as the actual data
-pred_class <- ifelse(pred_probs > 0.5, "Sustainable", "Non sustainable")
-pred_class <- factor(pred_class, levels = levels(data_glm$ESPECE_durabilite))
-
-conf_mat <- confusionMatrix(pred_class, data_glm$ESPECE_durabilite)
+pred_class <- ifelse(pred_probs > opt_thresh, "Sustainable","Non sustainable")
+pred_class <- factor(pred_class, levels = levels(data_dfa_durabilite_sp_bio$ESPECE_durabilite))
+conf_mat <- confusionMatrix(pred_class, data_dfa_durabilite_sp_bio$ESPECE_durabilite)
 print(conf_mat)
 
 # Extract and print accuracy directly.
 cat("Classification accuracy:", round(conf_mat$overall['Accuracy'] * 100, 1), "%\n")
 
+
+
 # --- 5. Visualisation ---
 # Use `predict()` on the original data for a clean plot data frame.
-data_glm %>%
+data_dfa_durabilite_sp_bio %>%
   mutate(Predicted_Prob = predict(glm_fit, type = "response")) %>%
   ggplot(aes(x = Predicted_Prob, fill = ESPECE_durabilite)) +
   geom_density(alpha = 0.5) +
@@ -1362,3 +1728,508 @@ data_glm %>%
   theme_minimal() +
   scale_fill_manual(values = c("Sustainable" = "darkgreen", "Non sustainable" = "red"))
 
+
+
+#### Are the assumptions of the respondents concerning species regulations correct ? #####
+BDC_STATUTS_17 <- read_csv("raw_data/BDC-Statuts-v17/BDC_STATUTS_17.csv") %>%
+  # filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL", "REGLSO")) %>% 
+  filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL")) %>% 
+  mutate(
+    LB_ADM_TR_simpl =  LB_ADM_TR,
+    # Replace "-" and "'" with space
+    LB_ADM_TR_simpl = str_replace_all(LB_ADM_TR_simpl, "[-']", " "),
+    # Remove accents
+    LB_ADM_TR_simpl = iconv(LB_ADM_TR_simpl, to = "ASCII//TRANSLIT")
+  ) %>%
+  dplyr::select(CD_REF, REGROUPEMENT_TYPE, LB_TYPE_STATUT, NIVEAU_ADMIN, LB_ADM_TR_simpl, LABEL_STATUT, FULL_CITATION, DOC_URL)
+
+# Species with at least 1 regul or protection
+BDC_STATUTS_17_summar <- BDC_STATUTS_17 %>%
+  dplyr::select(CD_REF) %>%
+  unique() %>%
+  mutate(national_status = "At least 1 regulation or protection")
+
+
+# Join survey data
+data_regl_prot <- all_data %>%
+  dplyr::select(id, ESPECE_nom, CD_REF, ESPECE_espece_reglem, ESPECE_reglem_adaptee, ESPECE_dpt) %>%
+  unique() %>%
+  left_join(departements %>% dplyr::select(dpt_simple, region_simple), by=join_by("ESPECE_dpt"=="dpt_simple")) %>%
+  dplyr::select(-geometry)
+
+# Separate different levels of protections/regulations
+bdc_dpt <- data_regl_prot %>%
+  # Join department-specific regulations
+  left_join(BDC_STATUTS_17 %>% filter(NIVEAU_ADMIN == "Département"), 
+            by = join_by("CD_REF"=="CD_REF", "ESPECE_dpt"=="LB_ADM_TR_simpl"))
+
+bdc_region <- data_regl_prot %>%
+  # Join department-specific regulations
+  left_join(BDC_STATUTS_17 %>% filter(NIVEAU_ADMIN %in% c("Ancienne région", "Région")), 
+            by = join_by("CD_REF"=="CD_REF", "region_simple"=="LB_ADM_TR_simpl"))
+
+
+bdc_national <- data_regl_prot %>%
+  # Join department-specific regulations
+  left_join(BDC_STATUTS_17 %>% filter(NIVEAU_ADMIN %in% c("État", "Territoire")), 
+            by = "CD_REF") %>%
+  dplyr::select(-LB_ADM_TR_simpl)
+
+
+
+
+data_regl_prot_join <- rbind(bdc_dpt, bdc_region) %>%
+  rbind(bdc_national) %>%
+  dplyr::select(-LABEL_STATUT) %>% # many regulations are cited more than once for a same species
+  mutate(
+    statut_group = case_when(
+      LB_TYPE_STATUT %in% c("Réglementation", "Réglementation sans objet") ~ "Regulation",
+      str_detect(LB_TYPE_STATUT, "départementale") ~ "Department-level protection",
+      str_detect(LB_TYPE_STATUT, "nationale") ~ "National-level protection",
+      str_detect(LB_TYPE_STATUT, "régionale") ~ "Regional-level protection",
+      
+      TRUE ~ LB_TYPE_STATUT
+    )
+  ) %>%
+  group_by(CD_REF) %>%
+  filter(if (any(!is.na(REGROUPEMENT_TYPE))) !is.na(REGROUPEMENT_TYPE) else TRUE) %>%
+  ungroup() %>%
+  mutate(
+    statut_group = replace_na(statut_group, "No regulation/protection"),
+    ESPECE_espece_reglem = case_when(
+      str_detect(ESPECE_espece_reglem, "Non") ~ "No",
+      str_detect(ESPECE_espece_reglem, "Oui") ~ "Yes",
+      str_detect(ESPECE_espece_reglem, "JNSP") ~ "IDK",
+      TRUE ~ ESPECE_espece_reglem),
+    statut_group = factor(
+      statut_group,
+      levels = c(
+        "No regulation/protection",
+        "National-level protection",
+        "Regional-level protection",
+        "Department-level protection",
+        "Regulation"
+      )
+    )
+  ) %>%
+  filter(!is.na(ESPECE_espece_reglem))%>%
+    unique() %>%
+  left_join(BDC_STATUTS_17_summar)
+
+
+data_regl_prot_summar <- data_regl_prot_join %>%
+  # # Calcul du pourcentage par ESPECE_espece_reglem et statut_group
+  group_by(ESPECE_espece_reglem, statut_group) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  group_by(ESPECE_espece_reglem) %>%
+  mutate(pct = n / sum(n) * 100)
+  
+data_regl_prot_summar2 <- data_regl_prot_join %>%
+  # # Calcul du pourcentage de chaque réponse
+  group_by(ESPECE_espece_reglem) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  mutate(pct = n / sum(n) * 100)
+
+# Bar plot
+pct_regul_answers <- ggplot(data_regl_prot_summar, aes(x = ESPECE_espece_reglem, y = pct, fill = statut_group)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Is the species regulated or protected ?", y = "Percentage of respondents", fill = "Status") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+pct_regul_answers
+
+count_regul_answers <- ggplot(data_regl_prot_join, aes(x = ESPECE_espece_reglem, fill = statut_group)) +
+  geom_bar(position = "stack") +
+  labs(x = "Is the species regulated or protected ?", y = "Number of respondents", fill = "Status") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+count_regul_answers
+
+# % réponses correctes / incorrectes
+data_regl_eval <- data_regl_prot_join %>%
+  mutate(
+    reponse_correcte = case_when(
+      ESPECE_espece_reglem == "Yes" & statut_group != "No regulation/protection" ~ "Correct",
+      ESPECE_espece_reglem == "No" & statut_group == "No regulation/protection" ~ "Correct",
+      TRUE ~ "Incorrect"
+    )
+  )
+
+# Résumé en pourcentage
+data_regl_eval_summar <- data_regl_eval %>%
+  group_by(ESPECE_espece_reglem, reponse_correcte, statut_group) %>%
+  summarise(n = n(), .groups = "drop")
+
+data_regl_eval_summar <- data_regl_eval %>%
+  group_by(ESPECE_espece_reglem, statut_group, reponse_correcte) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  group_by(ESPECE_espece_reglem) %>%
+  mutate(pct = n / sum(n) * 100)
+
+# Graphe
+pct_correct_regul <- ggplot(data_regl_eval_summar, aes(x = ESPECE_espece_reglem, y = pct, fill = reponse_correcte)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Is the species regulated or protected ?", y = "Percentage", fill = "Answer evaluation") +
+  scale_fill_brewer(palette = "Set1", direction=-1) +
+  theme_minimal()
+
+nb_correct_regul <- ggplot(data_regl_eval_summar, aes(x = ESPECE_espece_reglem, y = n, fill = reponse_correcte)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Is the species regulated or protected ?", y = "Count", fill = "Answer evaluation") +
+  scale_fill_brewer(palette = "Set1", direction=-1) +
+  theme_minimal()
+
+
+
+# plot_zoom_png?width=417&height=430
+png("regulations_answers.png", 
+    width = 2508,     # pixels
+    height = 1290,   # pixels
+    res = 300)        # resolution in dpi
+count_regul_answers + pct_correct_regul
+dev.off()
+
+# Find if the species indicated as having a regulation when they don't are regulated elsewhere
+df <- data_regl_prot_join %>%
+  subset(ESPECE_espece_reglem=="Yes" & statut_group=="No regulation/protection",
+         select=c(ESPECE_espece_reglem, statut_group, national_status)) %>%
+  group_by(national_status) %>%
+  summarise(n=n())
+
+#### GLM reglementation ####
+# Create a new column by pasting col1 and col2 together
+data_regl_eval$reglem_glm <- paste(data_regl_eval$ESPECE_espece_reglem, data_regl_eval$reponse_correcte, sep = "_")
+
+data_regl_eval <- data_regl_eval %>%
+  left_join(dplyr::select(all_data_profile_clusters, id, Cluster)%>%unique())
+
+data_regl_eval$reponse_correcte <- ifelse(data_regl_eval$reponse_correcte == "Correct", 1, 0)
+
+glm_fit <- glm(reponse_correcte ~ Cluster,
+               data = data_regl_eval,
+               family = binomial(link="logit"))
+summary(glm_fit)
+
+
+
+#### Number of harvesting areas per species ####
+data_enjeux_summary <- data_enjeux %>%
+  mutate(sustainability = ifelse(non_durable_ratio1 > 50, "Unsustainable", "Sustainable")) %>%
+  group_by(ESPECE_nom, sustainability) %>%
+  summarise(
+    area_count = n_distinct(massif),
+    citations = sum(total_answers_all),
+    .groups = "drop"
+  ) %>%
+  filter(citations >= 3)
+
+# Step 2: compute unsustainable ratio per species for ordering
+unsustainable_ratio <- data_enjeux_summary %>%
+  group_by(ESPECE_nom) %>%
+  summarise(
+    total_unsustainable = sum(area_count[sustainability == "Unsustainable"], na.rm = TRUE),
+    total_areas = sum(area_count, na.rm = TRUE)
+  ) %>%
+  mutate(unsustainable_ratio = total_unsustainable / total_areas)
+
+# Step 3: join back and order factor levels
+data_enjeux_summary <- data_enjeux_summary %>%
+  left_join(unsustainable_ratio %>% dplyr::select(ESPECE_nom, unsustainable_ratio, total_areas), by = "ESPECE_nom") %>%
+  mutate(ESPECE_nom = reorder(ESPECE_nom, unsustainable_ratio, decreasing = TRUE))
+
+# Step 4: plot
+ggplot(data_enjeux_summary %>%
+           dplyr::select(ESPECE_nom, total_areas) %>%
+           unique() %>%
+           mutate(ESPECE_nom = reorder(ESPECE_nom, -total_areas)), # reorder by descending total_areas
+         aes(x = ESPECE_nom, y = total_areas)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Number of Harvesting Areas per Species",
+    x = "Species",
+    y = "Number of Harvesting Areas"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+
+ggplot(data_enjeux_summary %>%
+         dplyr::select(ESPECE_nom, unsustainable_ratio, total_areas) %>%
+         unique() %>%
+         mutate(ESPECE_nom = reorder(ESPECE_nom, -total_areas)), # reorder by descending total_areas
+       aes(x = ESPECE_nom, y = unsustainable_ratio)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Number of Harvesting Areas per Species",
+    x = "Species",
+    y = "Number of Harvesting Areas"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+
+ggplot(data_enjeux_summary, aes(x = ESPECE_nom, y = area_count, fill = sustainability)) +
+  geom_col(position = "stack") +
+  labs(
+    title = "Sustainable vs Unsustainable Harvesting Areas per Species",
+    x = "Species",
+    y = "Number of Harvesting Areas"
+  ) +
+  scale_fill_manual(values = c("Sustainable" = "seagreen3", "Unsustainable" = "tomato")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+
+#### Harvesting issues ####
+# For each species, for each harvesting area, get the ratio of unsustainable citations
+# When there are less than 2 answers in the harvesting area, write "DD"
+# When the species is absent from the area, write "Abs
+
+data_enjeux_2 <- data_enjeux %>%
+  dplyr::select(CD_REF, ESPECE_nom, massif, n_present, total_answers_all, non_durable_ratio1) %>%
+  mutate(sustainability = ifelse(non_durable_ratio1 > 50, "Unsustainable", "Sustainable"),
+         sustainability = ifelse(non_durable_ratio1 == "Abs", "Absent", sustainability),
+         non_durable_ratio1 = ifelse(total_answers_all<3, "DD", non_durable_ratio1),
+         non_durable_ratio1 = ifelse(n_present==0, "Abs", non_durable_ratio1),
+         sustainability = ifelse(non_durable_ratio1 == "DD", "Data deficient", sustainability)) %>%
+  group_by(ESPECE_nom, sustainability) %>%
+  summarise(
+    area_count = n_distinct(massif),
+    citations = sum(total_answers_all),
+    .groups = "drop"
+  )
+
+# Step 2: compute unsustainable ratio per species for ordering
+unsustainable_ratio_2 <- data_enjeux_2 %>%
+  group_by(ESPECE_nom) %>%
+  summarise(
+    total_unsustainable = sum(area_count[sustainability == "Unsustainable"], na.rm = TRUE),
+    total_sustainable = sum(area_count[sustainability == "Sustainable"], na.rm = TRUE),
+    total_areas_enough_cited = total_unsustainable+total_sustainable,
+    total_areas_presence = sum(area_count[!is.na(sustainability)], na.rm = TRUE)) %>%
+  mutate(unsustainable_ratio = total_unsustainable / total_areas_enough_cited)
+
+# Step 3: join back and order factor levels
+data_enjeux_2_summary <- data_enjeux_2 %>%
+  left_join(unsustainable_ratio_2 %>% 
+              dplyr::select(ESPECE_nom, unsustainable_ratio, 
+                            total_unsustainable, total_sustainable,
+                            total_areas_enough_cited, 
+                            total_areas_presence), by = "ESPECE_nom")
+
+
+
+data_enjeux_2_summary %>%
+  # Keep only relevant sustainability statuses
+  filter(sustainability %in% c("Sustainable", "Unsustainable", "Data deficient")) %>%
+  na.omit() %>%
+  # Remove species that only have Data deficient areas
+  group_by(ESPECE_nom) %>%
+  filter(any(sustainability != "Data deficient")) %>%
+  ungroup() %>%
+  # Reorder species by unsustainable_ratio
+  mutate(ESPECE_nom = fct_reorder(ESPECE_nom, unsustainable_ratio, .desc = TRUE)) %>%
+  ggplot(aes(x = ESPECE_nom, y = area_count, fill = sustainability)) +
+  geom_col(position = "stack") +
+  labs(
+    title = "Sustainable vs Unsustainable Harvesting Areas per Species",
+    x = "Species",
+    y = "Number of Harvesting Areas"
+  ) +
+  scale_fill_manual(values = c("Sustainable" = "seagreen3", 
+                               "Unsustainable" = "tomato", 
+                               "Data deficient" = "grey")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+### Identifying local issues ####
+# Define color palettes for harvesting areas
+colors_montagne <- c("#4d004b", "#810f7c", "#88419d", "#8c6bb1")   # Mountain areas
+colors_med_corse <- c("#FD8D3C", "#fdd0a2")                         # Mediterranean & Corsica
+colors_plaine   <- c("#023858", "#045a8d", "#0570b0", "#3690c0", "#74a9cf") # Lowland areas
+
+harvesting_area_levels <- c(
+  "Alps", "Pyrenees", "Jura–Northern Alps", "Central Massif",
+  "Mediterranean", "Corsica",
+  "Northern Paris Basin", "Southern Paris Basin", "North–East", "Armorican Massif", "South–West"
+)
+
+massif_colors <- c(colors_montagne, colors_med_corse, colors_plaine)
+names(massif_colors) <- harvesting_area_levels
+harvesting_area_letters <- setNames(LETTERS[1:length(harvesting_area_levels)], harvesting_area_levels)
+
+
+## Prepare spatial data
+departements_simpl_PARIS$harvesting_area <- factor(
+  departements_simpl_PARIS$massif,
+  levels = massif_levels,
+  labels = harvesting_area_levels
+)
+
+departements_simpl_PARIS$area_type <- case_when(
+  departements_simpl_PARIS$harvesting_area %in% colors_montagne ~ "Mountain areas",
+  departements_simpl_PARIS$harvesting_area %in% colors_med_corse ~ "Mediterranean & Corsica",
+  TRUE ~ "Lowland areas"
+)
+
+# Centroids for labeling each harvesting area
+centroids <- departements_simpl_PARIS %>%
+  group_by(harvesting_area) %>%
+  summarize(geometry = st_union(geometry)) %>%
+  st_centroid() %>%
+  mutate(letter = harvesting_area_letters[harvesting_area])
+
+# Boundaries of harvesting areas
+harvesting_area_boundaries <- departements_simpl_PARIS %>%
+  group_by(harvesting_area) %>%
+  summarize(geometry = st_union(geometry))
+
+
+# Map of harvesting areas
+plot_harvest_areas <- ggplot() +
+  geom_sf(data = departements_simpl_PARIS, aes(fill = harvesting_area), colour = "white", alpha = 0.8) +
+  geom_sf(data = harvesting_area_boundaries, fill = NA, colour = "black", size = 1) +
+  geom_label(data = centroids, aes(label = letter, geometry = geometry),
+             stat = "sf_coordinates", size = 4, fontface = "bold", color = "black",
+             fill = "white", label.size = 0.3) +
+  scale_fill_manual(
+    name = "Harvesting areas",
+    values = massif_colors,
+    breaks = harvesting_area_levels,
+    labels = paste0(harvesting_area_letters, ". ", harvesting_area_levels)
+  ) +
+  labs(x = NULL, y = NULL) +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+
+
+## Prepare sustainability data
+data_enjeux_3 <- data_enjeux %>%
+  dplyr::select(CD_REF, ESPECE_nom, massif, n_present, total_answers_all, non_durable_ratio1) %>%
+  mutate(
+    non_durable_flag = case_when(
+      n_present == 0 ~ "Abs",
+      n_present != 0 & total_answers_all == 0 ~ "ND",
+      TRUE ~ "Value"
+    ),
+    sustainability = case_when(
+      non_durable_flag == "Abs" ~ "Absent",
+      non_durable_flag == "ND" ~ "No data",
+      total_answers_all < 3 & non_durable_ratio1 <= 50 ~ "Sustainable (<3 citations)",
+      total_answers_all < 3 & non_durable_ratio1 > 50 ~ "Unsustainable (<3 citations)",
+      total_answers_all >= 3 & non_durable_ratio1 <= 50 ~ "Sustainable (≥3 citations)",
+      total_answers_all >= 3 & non_durable_ratio1 > 50 ~ "Unsustainable (≥3 citations)",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(ESPECE_nom) %>%
+  filter(any(sustainability %in% c("Sustainable (<3 citations)", "Unsustainable (<3 citations)",
+                                   "Sustainable (≥3 citations)", "Unsustainable (≥3 citations)"))) %>%
+  ungroup() %>%
+  mutate(
+    massif = factor(massif, levels = massif_levels, labels = harvesting_area_levels),
+    massif_letter = harvesting_area_letters[massif]
+  )
+
+# Order species by number of unsustainable areas
+species_order <- data_enjeux_3 %>%
+  group_by(ESPECE_nom) %>%
+  filter(any(sustainability == "Unsustainable (≥3 citations)")) %>%
+  summarize(n_unsustainable = sum(sustainability == "Unsustainable (≥3 citations)")) %>%
+  arrange(n_unsustainable) %>%
+  pull(ESPECE_nom)
+
+data_enjeux_3_ordered <- data_enjeux_3 %>%
+  filter(ESPECE_nom %in% species_order) %>%
+  mutate(ESPECE_nom = factor(ESPECE_nom, levels = species_order),
+         x_pos = as.numeric(factor(massif, levels = harvesting_area_levels)))
+
+# Introduce gaps in x-axis after certain harvesting areas
+gap_positions <- c(4, 6)
+gap_size <- 0.5
+data_enjeux_3_ordered <- data_enjeux_3_ordered %>%
+  mutate(x_pos_gap = x_pos + sapply(x_pos, function(x) sum(x > gap_positions) * gap_size))
+
+# Prepare letter labels for harvesting areas
+max_y <- nlevels(data_enjeux_3_ordered$ESPECE_nom)
+label_df <- data.frame(
+  x = 1:length(harvesting_area_levels),
+  letter = harvesting_area_letters,
+  y = max_y + 0.5
+) %>%
+  mutate(x_gap = x + sapply(x, function(x) sum(x > gap_positions) * gap_size))
+
+# Colored rectangles to group harvesting areas
+group_df <- data.frame(
+  xmin = c(0.5, 4.5, 6.5),
+  xmax = c(4.001, 6.001, 11.5),
+  y = max_y + 0.5,
+  group_color = c("#4d004b", "#FD8D3C", "#023858")
+) %>%
+  mutate(
+    xmin = xmin + sapply(xmin, function(x) sum(x > gap_positions) * gap_size),
+    xmax = xmax + sapply(xmax, function(x) sum(x > gap_positions) * gap_size)
+  )
+
+group_labels <- data.frame(
+  label = c("Mountains", "Mediterranean", "Lowlands"),
+  x = (group_df$xmin + group_df$xmax) / 2,
+  y = max_y + 2
+)
+
+
+## Plot sustainability heatmap
+plot_enjeux_custom <- ggplot(data_enjeux_3_ordered, aes(x = x_pos_gap, y = ESPECE_nom)) +
+  geom_rect(data = group_df, aes(xmin = xmin, xmax = xmax, ymin = y + 0.1, ymax = y + 1.1, fill = group_color),
+            color = NA, inherit.aes = FALSE, alpha = 0.8) +
+  scale_fill_identity() +
+  geom_tile(fill = "white", colour = "grey80", alpha = 0.6) +
+  new_scale_fill() +
+  geom_tile(aes(fill = sustainability), width = 0.6, height = 0.6, colour = "black") +
+  scale_fill_manual(
+    name = "Sustainability",
+    values = c(
+      "Sustainable (≥3 citations)" = "#006400",
+      "Sustainable (<3 citations)" = "#CCFFCC",
+      "Unsustainable (≥3 citations)" = "#8B0000",
+      "Unsustainable (<3 citations)" = "#FFCCCC",
+      "Absent" = NA,
+      "No data" = "#D3D3D3"
+    ),
+    na.value = "transparent"
+  ) +
+  geom_tile(data = label_df, aes(x = x_gap, y = y + 0.6), width = 0.6, height = 0.6,
+            fill = "white", color = "black", inherit.aes = FALSE) +
+  geom_text(data = label_df, aes(x = x_gap, y = y + 0.6, label = letter), fontface = "bold", inherit.aes = FALSE) +
+  geom_text(data = group_labels, aes(x = x, y = y, label = label), fontface = "bold", size = 4, color = "black", inherit.aes = FALSE) +
+  coord_fixed() +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank()) +
+  scale_y_discrete(expand = expansion(mult = c(0.05, 0.25)))
+
+
+## Display combined plots
+plot_enjeux_custom + plot_harvest_areas
+
+
+# plot_zoom_png?width=1945&height=814
+png("local_issues.png", 
+    width = 5835,     # pixels
+    height = 2442,   # pixels
+    res = 300)        # resolution in dpi
+plot_enjeux_custom + plot_harvest_areas
+dev.off()

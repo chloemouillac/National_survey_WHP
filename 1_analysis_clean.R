@@ -1389,7 +1389,8 @@ ggplot(data_enjeux_filtered, aes(x = ESPECE_nom,
 massifs_simple <- read.csv("massifs_cueillette_simple.csv")
 
 data_enjeux_massif <- all_rarity %>%
-  full_join(all_data %>% dplyr::select(-sp_relative_area), by="CD_REF") %>%
+  full_join(all_data %>% dplyr::select(-sp_relative_area, -dpt_area, -sp_area), 
+            by="CD_REF") %>%
   dplyr::select(CD_REF, id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
                 dpt_name, dpt_simple, dpt_area, sp_area) %>%
   left_join(massifs_simple, join_by("dpt_name"=="dpt")) %>%
@@ -1450,7 +1451,7 @@ ggplot(data_enjeux_massif, aes(x = reorder_within(ESPECE_nom, proportion_non_dur
 #### Maps for specific species ####
 # Data is already processed in `df_all_species_data`, now join with `departements`
 citations_by_species_dpt <- all_data %>%
-  select(id, ESPECE_nom, ESPECE_durabilite, ESPECE_dpt) %>% 
+  dplyr::select(id, ESPECE_nom, ESPECE_durabilite, ESPECE_dpt) %>% 
   filter(!is.na(ESPECE_dpt) & ESPECE_dpt != "") %>%
   unique() %>%
   filter(!is.na(ESPECE_dpt) & ESPECE_dpt != "") %>%
@@ -1538,16 +1539,18 @@ plot_species_map <- function(species_name) {
 
 
 # plot_species_map("Urtica dioica")
-# plot_species_map("Allium ursinum")
+plot_species_map("Allium ursinum")
 # plot_species_map("Arnica montana")
 # plot_species_map("Gentiana lutea")
 # plot_species_map("Thymus vulgaris")
 plot_species_map("Euphorbia spinosa")
+plot_species_map("Rhodiola rosea")
+
 # plot_species_map("Artemisia umbelliformis")
 # plot_species_map("Sambucus nigra")
 # plot_species_map("Vaccinium myrtillus")
 # plot_species_map("Filipendula ulmaria")
-# plot_species_map("Narcissus pseudonarcissus")
+plot_species_map("Narcissus pseudonarcissus")
 
 
 
