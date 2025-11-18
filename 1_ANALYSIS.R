@@ -735,7 +735,6 @@ plot_durability_ratio <- function(data, n = 10) {
     )
 }
 
-# Example call
 plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
 
 
@@ -751,6 +750,77 @@ plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
 # Close the device
 dev.off()
 
+
+plot_durability_ratio_exclude_top <- function(data, exclude_n = 40) {
+  
+  # All species by total citations
+  species_ranked <- data %>%
+    filter(!is.na(CD_REF)) %>%
+    dplyr::select(ESPECE_nom, id) %>%
+    unique() %>%
+    count(ESPECE_nom, name = "total_citations") %>%
+    arrange(desc(total_citations))
+  
+  # Species to include (exclude top 'exclude_n')
+  species_to_plot <- species_ranked %>%
+    slice((exclude_n + 1):n()) %>%
+    pull(ESPECE_nom)
+  
+  # Summarise counts + ratio
+  df_summary <- data %>%
+    filter(ESPECE_nom %in% species_to_plot) %>%
+    distinct(id, ESPECE_nom, ESPECE_durabilite) %>%
+    count(ESPECE_nom, ESPECE_durabilite) %>%
+    group_by(ESPECE_nom) %>%
+    mutate(
+      total_citations = sum(n),
+      ratio_non_durable = sum(n[ESPECE_durabilite == "Non durable"], na.rm = TRUE) / sum(n)
+    ) %>%
+    summarise(
+      ratio_non_durable = unique(ratio_non_durable),
+      total_citations = unique(total_citations),
+      .groups = "drop"
+    ) %>%
+    filter(ratio_non_durable > 0) %>%
+    arrange(desc(ratio_non_durable)) %>%
+    mutate(
+      ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)),
+      total_citations = factor(total_citations)  # treat as discrete
+    )
+  
+  # Qualitative palette for discrete citation counts
+  n_levels <- nlevels(df_summary$total_citations)
+
+  
+  # Dot plot: combine color and size in one legend
+  ggplot(df_summary, aes(x = ratio_non_durable, y = ESPECE_nom)) +
+    geom_point(aes(color = total_citations, size = total_citations), alpha = 0.8) +
+    scale_color_manual(values = c("cornflowerblue", "seagreen", "gold", "purple")) +
+    scale_size_manual(values = seq(3, 8, length.out = n_levels)) +
+    scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+    labs(
+      title = paste("Ratio of non-sustainable citations (excluding top", exclude_n, "species)"),
+      x = "Ratio of non-sustainable citations",
+      y = "Species",
+      color = "Number of citations",
+      size = "Number of citations"
+    ) +
+    guides(
+      color = guide_legend(
+        override.aes = list(size = seq(3, 8, length.out = n_levels))
+      ),
+      size = "none"  # hide separate size legend
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(hjust = 0.5),
+      legend.box = "horizontal"
+    )
+}
+
+# Example call
+plot_durability_ratio_exclude_top(all_data %>% filter(!is.na(ESPECE_nom)), exclude_n = 40)
 
 
 
@@ -927,8 +997,12 @@ data_enjeux_general <- data_enjeux %>%
   mutate(across(c(non_durable_ratio1, non_durable_ratio2,
                   answer_coverage_harv_area, answer_coverage_dpt),
                 ~ round(.x, 1))
-         )
+         )  %>%
+  na.omit()
 
+
+length(data_enjeux_general$non_durable_ratio1[data_enjeux_general$non_durable_ratio1<50])
+length(data_enjeux_general$non_durable_ratio1[data_enjeux_general$non_durable_ratio1>=50])
 
 #### Clustering ####
 # Suppose your data frame is something like:
@@ -941,13 +1015,13 @@ dat <- data_enjeux_general[, c("non_durable_ratio1", "answer_coverage_dpt", "tot
 dat_scaled <- scale(dat)
 
 # 3. Decide number of clusters (elbow method)
-wss <- sapply(1:10, function(k){
-  kmeans(dat_scaled, k, nstart = 25)$tot.withinss
-})
-
-plot(1:10, wss, type = "b",
-     xlab = "Number of clusters K",
-     ylab = "Total within-clusters sum of squares")
+# wss <- sapply(1:10, function(k){
+#   kmeans(dat_scaled, k, nstart = 25)$tot.withinss
+# })
+# 
+# plot(1:10, wss, type = "b",
+#      xlab = "Number of clusters K",
+#      ylab = "Total within-clusters sum of squares")
 
 # from the plot, choose K (for example K = 3)
 
@@ -2024,6 +2098,7 @@ data_enjeux_2_summary <- data_enjeux_2 %>%
                             total_areas_presence), by = "ESPECE_nom")
 
 
+massif_levels <- levels(as.factor(data_enjeux$massif))
 
 data_enjeux_2_summary %>%
   # Keep only relevant sustainability statuses
@@ -2233,3 +2308,4 @@ png("local_issues.png",
     res = 300)        # resolution in dpi
 plot_enjeux_custom + plot_harvest_areas
 dev.off()
+
