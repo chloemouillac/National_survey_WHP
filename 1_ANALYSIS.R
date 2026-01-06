@@ -69,6 +69,31 @@ csr <- read.csv("processed_data/CSR_clean.csv") %>%
   dplyr::select(-strategy_class)
 
 
+#### How many species in common with the 1st paper ? ####
+list_1st_paper <-  read.csv("liste_Lescure_v17.csv") %>%
+  filter(Regroupement %in% c("Angiospermes", "Gymnospermes", "Fougères")) %>%
+  dplyr::select(CD_REF)
+
+list_1st_paper$first_paper <- "yes"
+
+in_common <- read.csv("corresp_species.csv")
+in_common$in_survey <- "yes"
+in_common <- in_common %>%
+  full_join(list_1st_paper)
+
+   # Nb of plants cited in survey that were in the 1st paper
+nrow(unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & first_paper=="yes", select=ESPECE_nom)))
+unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & first_paper=="yes", select=ESPECE_nom))
+unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & first_paper=="yes", select=ESPECE_nom))
+
+   # Nb of new plants
+nrow(unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & is.na(first_paper), select=ESPECE_nom)))
+unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & is.na(first_paper), select=ESPECE_nom))
+unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & is.na(first_paper) 
+              & Commentaire != "Champignon", select=ESPECE_nom))
+
+   # Nb of plants in Lescure list
+nrow(unique(subset(in_common, !is.na(CD_REF) & first_paper=="yes", select=CD_REF)))
 
 #### Visualise biogeographical clusters of departements ####
 clusters <- read.csv("raw_data/7clusters_chisq_no_transfo_20.csv")
@@ -1626,12 +1651,12 @@ cat("Classification accuracy:", round(accuracy*100, 1), "%\n")
 # Variable réponse (binaire : "Durable" / "Non durable")
 data_dfa_durabilite_sp_bio <- all_data %>%
   dplyr::select(id, ESPECE_nom, CD_REF,
-                ESPECE_durabilite, C, S, R, sp_relative_area, choix_type_bio) %>%
+                ESPECE_durabilite, C, S, R, csr_simple, sp_relative_area, choix_type_bio) %>%
   unique() %>%
   na.omit() %>%
   dplyr::select(-CD_REF, -id) %>%
   droplevels() %>%
-  mutate(across(-c(ESPECE_durabilite, C, S, R, sp_relative_area), as.factor)) %>%
+  mutate(across(-c(ESPECE_durabilite, C, S, R, csr_simple, sp_relative_area), as.factor)) %>%
   mutate(ESPECE_durabilite = forcats::fct_recode(
     ESPECE_durabilite,
     "Sustainable" = "Durable",
@@ -1642,10 +1667,11 @@ data_dfa_durabilite_sp_bio_summar <- data_dfa_durabilite_sp_bio %>%
   group_by(ESPECE_nom, ESPECE_durabilite) %>%
   summarise(count=n(), csr_simple=first(csr_simple), choix_type_bio=first(choix_type_bio))
 
-active_vars <- data_dfa_durabilite_sp_bio %>%active_vars <- data_dfa_durabchoix_type_bioilite_sp_bio %>%
+active_vars <- data_dfa_durabilite_sp_bio %>%
   dplyr::select(-ESPECE_durabilite, -ESPECE_nom)
 
 grouping_factor <- data_dfa_durabilite_sp_bio$ESPECE_durabilite
+
 
 # --- Run DFA ---
 res.dfa <- discrimin(dudi.mix(active_vars, scannf = FALSE), 
@@ -2098,7 +2124,11 @@ data_enjeux_2_summary <- data_enjeux_2 %>%
                             total_areas_presence), by = "ESPECE_nom")
 
 
-massif_levels <- levels(as.factor(data_enjeux$massif))
+massif_levels <- c(
+  "Alpes", "Pyrénées", "Jura-Alpes Nord", "Massif Central",
+  "Méditerranée", "Massif Corse",
+  "Bassin Parisien Nord", "Bassin Parisien Sud", "Nord-Est", "Massif Armoricain", "Sud-Ouest"
+)
 
 data_enjeux_2_summary %>%
   # Keep only relevant sustainability statuses
@@ -2308,4 +2338,100 @@ png("local_issues.png",
     res = 300)        # resolution in dpi
 plot_enjeux_custom + plot_harvest_areas
 dev.off()
+
+
+#### Local issues 2 ####
+
+# Calculate species area
+vascular1 <- read.csv("list_vascular_v17.csv") %>%
+  right_join(all_data) %>%
+  dplyr::select(c(FR, id, CD_REF, ESPECE_dpt, ESPECE_nom, ESPECE_durabilite)) %>%
+  left_join(all_rarity, by = join_by("CD_REF", "ESPECE_dpt"=="dpt_simple")) %>%
+  group_by(CD_REF, ESPECE_nom, FR) %>%
+  summarise(sp_area=sum(sp_area), .groups = "drop") %>%
+  na.omit() %>%
+  dplyr::filter(FR %in% c("P", "S", "C", "D"))
+  
+# Calculate species sustainability ratio
+vascular2 <- read.csv("list_vascular_v17.csv") %>%
+  right_join(all_data) %>%
+  dplyr::select(c(FR, id, CD_REF, ESPECE_dpt, ESPECE_nom, ESPECE_durabilite)) %>%
+  group_by(CD_REF, ESPECE_nom) %>%
+  summarise(
+    total_observations = n(),
+    non_durable_count = sum(ESPECE_durabilite == "Non durable"),
+    unsustainable_ratio = non_durable_count / total_observations,
+    .groups = "drop" 
+  )  
+
+
+
+vascular <- full_join(vascular1, vascular2) %>%
+  na.omit() %>%
+  filter(total_observations<5 & unsustainable_ratio>0)
+  
+
+# P - Widespread native/undetermined: Indigenous or of uncertain origin, widely present
+# S - Subendemic: Mostly native to France with limited distribution elsewhere
+# C - Cryptogenic: Origin unclear or unknown
+# D - Doubtful Presence: Presence in France uncertain or unconfirmed
+# I - Introduced: Non-native, not necessarily invasive
+# M - Historically introduced: Long-established non-native species
+# J - Introduced & invasive: Non-native species with invasive behavior
+
+
+
+##### % of unsustainable species that are regulated/unregulated ####
+sust_regul_status <- data_regl_prot_join %>%
+  dplyr::select(id, CD_REF, ESPECE_nom, ESPECE_espece_reglem, statut_group) %>%
+  left_join(dplyr::select(all_data, id, CD_REF, ESPECE_durabilite)) %>%
+  unique() %>%
+  group_by(ESPECE_durabilite, statut_group) %>%
+  summarise(n_species = n(), .groups = "drop")
+
+
+result <- sust_regul_status %>%
+  dplyr::filter(ESPECE_durabilite == "Non durable") %>%
+  dplyr::summarise(
+    total_non_durable = sum(n_species),
+    non_durable_unregulated = sum(
+      n_species[statut_group == "No regulation/protection"],
+      na.rm = TRUE
+    ),
+    percent = 100 * non_durable_unregulated / total_non_durable
+  )
+
+sust_regul_species2 <- data_regl_prot_join %>%
+  dplyr::select(id, CD_REF, ESPECE_nom, ESPECE_espece_reglem, statut_group) %>%
+  left_join(dplyr::select(all_data, id, CD_REF, ESPECE_durabilite)) %>%
+  distinct()
+
+
+unprot <- sust_regul_species2 %>%
+  dplyr::filter(
+    statut_group == "No regulation/protection"
+  )
+
+unsust_ratio <- unprot %>%
+  dplyr::group_by(CD_REF, ESPECE_nom) %>%
+  dplyr::summarise(
+    total_citations = n(),
+    unsustainable_citations = sum(ESPECE_durabilite == "Non durable", na.rm = TRUE),
+    ratio_unsustainable = unsustainable_citations / total_citations,
+    .groups = "drop"
+  )
+
+unsust_ratio %>%
+  dplyr::arrange(desc(ratio_unsustainable))
+
+
+##### Number of AFC and Simples answers ####
+rattach_gp_cueill <- all_data %>%
+  dplyr::select(id, PROFIL_nom_orga_rattach) %>%
+  unique() %>%
+  na.omit()
+
+ggplot(rattach_gp_cueill, aes(x=PROFIL_nom_orga_rattach)) +
+  geom_bar() +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
 
