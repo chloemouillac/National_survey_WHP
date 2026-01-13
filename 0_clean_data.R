@@ -5,7 +5,7 @@ library(dplyr)
 library(stringr)
 
 #### Import data ####
-raw_data <- read.csv(here::here("results-survey676868.csv"))
+raw_data <- read.csv(here::here("raw_data/results-survey676868.csv"))
 names(raw_data)
 
 

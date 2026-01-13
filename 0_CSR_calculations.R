@@ -11,13 +11,13 @@ library(stringr)
 
 #### Import data ####
 # Import the list species :
-species_list <- read.csv("raw_data/CSR_corresp.csv") %>%
+species_list <- read.csv("raw_data/CSR/CSR_corresp.csv") %>%
   dplyr::select(ESPECE_nom, CD_REF, AccSpeciesID, Leaf) %>%
   na.omit()
 
 
 # Import the TRY trait data and filter it :
-TRY_data <- readr::read_delim("raw_data/TRY/36998_01112024024943/36998.txt", delim = "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+TRY_data <- readr::read_delim("raw_data/CSR/TRY/36998_01112024024943/36998.txt", delim = "\t", escape_double = FALSE, trim_ws = TRUE) %>%
   subset(!is.na(TraitID),
          select=c("AccSpeciesID", "AccSpeciesName", "TraitID", "StdValue", "UnitName")) %>%
   mutate(AccSpeciesID = as.character(AccSpeciesID))
