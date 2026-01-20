@@ -27,6 +27,7 @@ library(pROC)
 library(dplyr)
 library(purrr)
 library(boot)
+library(plotly)
 
 
 #### Import data ####
@@ -1542,6 +1543,332 @@ cat("Classification accuracy:", round(conf_mat$overall['Accuracy'] * 100, 1), "%
 
 ####_________####
 #### Figure 3 ..... ####
+#### Plot species maps per département ####
+# Data is already processed in `df_all_species_data`, now join with `departements`
+citations_by_species_dpt <- df_all_species_data %>%
+  dplyr::select(id, nom, durabilite, dpt) %>% 
+  filter(!is.na(dpt) & dpt != "") %>%
+  unique() %>%
+  filter(!is.na(dpt) & dpt != "") %>%
+  group_by(dpt, nom, durabilite) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = durabilite,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(total_citations = Durable + `Non durable`)
+
+
+citations_by_species_massif <- citations_by_species_dpt %>%
+  right_join(departements_simpl_PARIS, join_by("dpt"=="dpt_simple")) %>%
+  group_by(nom, massif) %>%
+  summarise(Non_durable=sum(`Non durable`),
+            Durable=sum(Durable), 
+            total_citations=sum(total_citations)) %>%
+  ungroup() %>%
+  na.omit()
+
+
+plot_species_map_generic <- function(
+    spatial_data,
+    data,
+    species_name,
+    join_by_expr,
+    value_non_durable,
+    value_durable,
+    value_total,
+    global_max,
+    subtitle
+) {
+  
+  map_data <- spatial_data %>%
+    left_join(
+      data %>% filter(nom == species_name),
+      by = join_by_expr
+    ) %>%
+    st_as_sf() %>%
+    mutate(
+      prop_non_durable = ifelse(
+        {{ value_total }} > 0,
+        round({{ value_non_durable }} / {{ value_total }} * 100, 2),
+        0
+      )
+    )
+  
+  centroids <- map_data %>%
+    mutate(geometry = st_centroid(geometry))
+    
+  plot_prop <- ggplot(map_data) +
+    geom_sf(aes(fill = prop_non_durable), colour = "white", linewidth = 0.2) +
+    
+    # geom_sf_text(
+    #   data = subset(map_data, !is.na(prop_non_durable)),
+    #   aes(label = paste0(prop_non_durable, "%")),
+    #   size = 3
+    # ) +
+    
+    # geom_sf_text(
+    #   aes(label = total_citations),
+    #   size = 3
+    # ) +
+
+    scale_fill_distiller(
+      palette = "Reds",
+      limits = c(0, 100),
+      direction = 1,
+      na.value = "grey80",
+      oob = scales::squish
+    ) +
+    geom_sf(
+      data = centroids,
+      ggplot2::aes(size = {{ value_total }}),
+      shape = 21,
+      fill = "black",
+      colour = "white",
+      alpha = 0.5,
+      stroke = 0.3
+    ) +
+    scale_size_continuous(
+      limits = c(1, global_max),
+      range = c(1, 10),
+      guide = ggplot2::guide_legend(title = "Total mentions")
+    ) +
+    theme_void(base_size = 14) +
+    labs(fill = "Percentage of
+'unsustainable' mentions"
+    ) +
+    theme(
+      legend.title = element_text(size = 13),
+      legend.text = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5))
+  
+  plot_prop +
+    labs(
+      title = species_name,
+      subtitle = paste("mentions", subtitle)
+    )
+}
+
+
+plot_species_map_generic <- function(
+    spatial_data,
+    data,
+    species_name = NULL,
+    join_by_expr,
+    value_non_durable,
+    value_durable,
+    value_total,
+    global_max = NULL,
+    subtitle
+) {
+  
+  filtered_data <- data %>%
+    {
+      if (!is.null(species_name)) {
+        filter(., nom == species_name)
+      } else {
+        .
+      }
+    }
+  
+  map_data <- spatial_data %>%
+    left_join(filtered_data, by = join_by_expr) %>%
+    st_as_sf() %>%
+    mutate(
+      prop_non_durable = ifelse(
+        {{ value_total }} > 0,
+        round({{ value_non_durable }} / {{ value_total }} * 100, 2),
+        NA_real_
+      )
+    )
+  
+  centroids <- map_data %>%
+    mutate(geometry = st_centroid(geometry))
+  
+  p <- ggplot(map_data) +
+    geom_sf(
+      aes(fill = prop_non_durable),
+      colour = "white",
+      linewidth = 0.2
+    ) +
+    scale_fill_distiller(
+      palette = "Reds",
+      limits = c(0, 100),
+      direction = 1,
+      na.value = "grey80",
+      oob = scales::squish
+    ) +
+    geom_sf(
+      data = centroids,
+      aes(size = {{ value_total }}),
+      shape = 21,
+      fill = "black",
+      colour = "white",
+      alpha = 0.5,
+      stroke = 0.3
+    ) +
+    theme_void(base_size = 14) +
+    labs(
+      fill = "Percentage of\n'unsustainable' mentions"
+    ) +
+    theme(
+      legend.title = element_text(size = 13),
+      legend.text = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5)
+    )
+  
+  if (!is.null(species_name) && !is.null(global_max)) {
+    p <- p +
+      scale_size_continuous(
+        limits = c(1, global_max),
+        range = c(1, 10),
+        guide = guide_legend(title = "Total mentions")
+      )
+  } else {
+    p <- p +
+      scale_size_continuous(
+        range = c(1, 10),
+        guide = guide_legend(title = "Total mentions")
+      )
+  }
+  
+  p +
+    labs(
+      title = ifelse(is.null(species_name), "All species", species_name),
+      subtitle = paste("mentions", subtitle)
+    )
+}
+
+plot_species_map_dpt <- function(species_name) {
+  
+  global_max <- max(
+    citations_by_species_dpt$total_citations,
+    na.rm = TRUE
+  )
+  
+  plot_species_map_generic(
+    spatial_data = departements_simpl_PARIS,
+    data = citations_by_species_dpt,
+    species_name = species_name,
+    join_by_expr = c("dpt_simple" = "dpt"),
+    value_non_durable = `Non durable`,
+    value_durable = Durable,
+    value_total = total_citations,
+    global_max = global_max,
+    subtitle = "by department"
+  )
+}
+
+
+
+
+plot_species_map_massif <- function(species_name) {
+  
+  spatial_massif <- departements_simpl_PARIS %>%
+    group_by(massif) %>%
+    summarise() %>%
+    ungroup()
+  
+  global_max <- max(
+    citations_by_species_massif$total_citations,
+    na.rm = TRUE
+  )
+  
+  plot_species_map_generic(
+    spatial_data = spatial_massif,
+    data = citations_by_species_massif,
+    species_name = species_name,
+    join_by_expr = "massif",
+    value_non_durable = Non_durable,
+    value_durable = Durable,
+    value_total = total_citations,
+    global_max = global_max,
+    subtitle = "by harvesting area"
+  )
+}
+
+species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Narcissus pseudonarcissus") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Filipendula ulmaria") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
+species_maps_dpt 
+
+# plot_zoom_png?width=905&height=697
+png("plots/Figure_3_species_maps_dpt.png", 
+    width = 2715,
+    height = 2091,
+    res = 300)
+species_maps_dpt
+dev.off()
+
+
+species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Narcissus pseudonarcissus") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Filipendula ulmaria") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
+species_maps_massif
+
+# plot_zoom_png?width=905&height=697
+png("plots/Figure_3_species_maps_massif.png", 
+    width = 2715,
+    height = 2091,
+    res = 300)
+species_maps_massif
+dev.off()
+
+
+plot_map_France_dpt <- function() {
+
+  plot_species_map_generic(
+    spatial_data = departements_simpl_PARIS,
+    data = citations_by_species_dpt %>% group_by(dpt) %>% summarise(
+      Non_durable=sum(`Non durable`),
+      Durable=sum(Durable),
+      total_citations=sum(total_citations)) %>% ungroup(),
+    species_name = NULL,
+    join_by_expr =  c("dpt_simple" = "dpt"),
+    value_non_durable = Non_durable,
+    value_durable = Durable,
+    value_total = total_citations,
+    global_max = NULL,
+    subtitle = "by departement"
+  )
+}
+
+plot_map_France_massif <- function() {
+  
+  spatial_massif <- departements_simpl_PARIS %>%
+    group_by(massif) %>%
+    summarise() %>%
+    ungroup()
+  
+  plot_species_map_generic(
+    spatial_data = spatial_massif,
+    data = citations_by_species_massif %>% group_by(massif) %>% summarise(
+      Non_durable=sum(Non_durable),
+      Durable=sum(Durable),
+      total_citations=sum(total_citations)) %>% ungroup(),
+    species_name = NULL,
+    join_by_expr = "massif",
+    value_non_durable = Non_durable,
+    value_durable = Durable,
+    value_total = total_citations,
+    global_max = NULL,
+    subtitle = "by harvesting area"
+  )
+}
+
+
+plot_map_France_dpt() + plot_map_France_massif()
+
+# plot_zoom_png?width=1272&height=480
+png("plots/Figure_3_all_France_species_maps.png", 
+    width = 3816,
+    height = 1440,
+    res = 300)
+plot_map_France_dpt() + plot_map_France_massif() + plot_annotation(tag_levels = "a") 
+dev.off()
+
+
+########################
+
 #### Overview of harvesting issues in France ####
 # x axis = number of departements with a "non durable" answer / number of departements the species is cited in
 data_enjeux <- all_rarity %>%
@@ -1665,7 +1992,7 @@ data_enjeux_general <- data_enjeux %>%
                 ~ round(.x, 1)))
 
 
-##### Plot number of citations against species  area ####
+##### Plot number of citations against species area ####
 data_enjeux_general$non_durable_cat <- cut(
   data_enjeux_general$non_durable_ratio2,
   breaks = c(0, 25, 50, 75, 100),  # define 4 bins
@@ -1803,7 +2130,6 @@ p <- ggplot(data_enjeux_general, aes(x = species_area_FR)) +
                                   length.out = 10)) +  # Adjust 'length.out' to change number of ticks
   theme_minimal()
 
-library(plotly)
 # Convert to interactive plotly object
 interactive_plot <- ggplotly(p)
 
