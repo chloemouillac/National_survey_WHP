@@ -61,7 +61,10 @@ taxref <-  read.delim("raw_data/TAXREF_v17_2024/TAXREFv17.txt") %>%
 all_rarity <-  read.csv("raw_data/OpenObs+GBIF_RARITY_20km.csv") %>%
   dplyr::select(CD_REF, dpt_area, sp_area, dpt_name, sp_relative_area) %>%
   mutate(dpt_simple =  str_replace_all(dpt_name, "[-']", " "),
-         dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"))
+         dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT")) %>%
+  left_join(all_rarity %>% group_by(CD_REF) %>% # add a column with total species area in France
+              summarise(sp_area_FR=sum(sp_area)))
+  
 
 raunkieaer <- read.csv("processed_data/type_bio.csv") %>%
   dplyr::select(CD_REF, choix_type_bio) %>%
@@ -166,7 +169,7 @@ plot_massifs
 
 
 # plot_zoom_png?width=777&height=640
-png("massifs_cueillette.png", 
+png("plots/massifs_cueillette.png", 
     width = 2331,     # pixels
     height = 1920,   # pixels
     res = 300)        # resolution in dpi
@@ -581,15 +584,16 @@ all_data <- df_profile_renamed %>%
   ) %>%
   dplyr::select(-matches("ESPECE_usages_NA$")) %>%
   
-  # Add taxref, Raunkiaer, CSR, species presence (cover %) per département
+  # Add taxref, Raunkiaer, CSR, species presence (cover %) per département, species status (native...)
   left_join(taxref, by = c("ESPECE_nom" = "LB_NOM")) %>%
   left_join(raunkieaer, by = "CD_REF") %>%
   left_join(csr, by = "CD_REF") %>%
   left_join(all_rarity, by = join_by("CD_REF", "ESPECE_dpt"=="dpt_simple")) %>%
+  left_join(vascular) %>%
   dplyr::select(-dpt_name) %>%
   
   # Convert to factors (excluding key cols)
-  mutate(across(-c(id, ESPECE_nom, CD_REF, C, S, R, sp_relative_area, sp_area), as.factor))
+  mutate(across(-c(id, ESPECE_nom, CD_REF, C, S, R, sp_relative_area, sp_area, sp_area_FR), as.factor))
 
 
 ####_________####
@@ -604,7 +608,7 @@ number_non_plant <- all_data_corresp[all_data_corresp$Commentaire %in% c("Champi
 number_genus <- all_data_corresp[is.na(all_data_corresp$CD_REF) &
                                    !(all_data_corresp$Commentaire %in% c("Champignon", "Algue", "Lichen")),]
 # non plants : 27/1117=2.4%
-# geneus level : 41/1117=3.7%
+# genus level : 41/1117=3.7%
 
 
 ####_________####
@@ -678,7 +682,7 @@ all_cited <- ggplot(df_species, aes(x = fct_reorder(ESPECE_nom, -citations), y =
 # 172 different cited species
 
 # plot_zoom_png?width=967&height=661
-png("all_cited.png", 
+png("plots/all_cited.png", 
     width = 2901,     # pixels
     height = 1983,   # pixels
     res = 300)        # resolution in dpi
@@ -758,16 +762,23 @@ plot_cumulative_species(all_data)
 
 ####_________####
 #### Figure 1 - Harvesting sustainability of the 20 most cited species ####
-plot_durability_ratio <- function(data, n = 10) {
+plot_durability_ratio <- function(data, n = NULL,
+                                  min_ratio = NULL, max_ratio = NULL,
+                                  min_citations = NULL, max_citations = NULL) {
   
-  # Top n species by total citations
+  # Top species by total citations (if n is provided)
   top_species <- data %>%
     filter(!is.na(CD_REF)) %>%
     dplyr::select(ESPECE_nom, id) %>%
     unique() %>%
-    count(ESPECE_nom, name = "total_citations") %>%
-    slice_max(total_citations, n = n) %>%
-    pull(ESPECE_nom)
+    count(ESPECE_nom, name = "total_citations")
+  
+  if (!is.null(n)) {
+    top_species <- top_species %>%
+      slice_max(total_citations, n = n)
+  }
+  
+  top_species <- top_species %>% pull(ESPECE_nom)
   
   # Summarise counts + ratio
   df_summary <- data %>%
@@ -784,14 +795,31 @@ plot_durability_ratio <- function(data, n = 10) {
       total_citations = unique(total_citations),
       .groups = "drop"
     ) %>%
-    arrange(ratio_non_durable) %>%
+    arrange(ratio_non_durable)
+  
+  # Apply filtering if requested
+  if (!is.null(min_ratio)) {
+    df_summary <- df_summary %>% filter(ratio_non_durable >= min_ratio)
+  }
+  if (!is.null(max_ratio)) {
+    df_summary <- df_summary %>% filter(ratio_non_durable <= max_ratio)
+  }
+  if (!is.null(min_citations)) {
+    df_summary <- df_summary %>% filter(total_citations >= min_citations)
+  }
+  if (!is.null(max_citations)) {
+    df_summary <- df_summary %>% filter(total_citations <= max_citations)
+  }
+  
+  # Keep ordering for plot
+  df_summary <- df_summary %>%
     mutate(ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)))
   
   # Dot plot
   ggplot(df_summary, aes(x = ratio_non_durable, y = ESPECE_nom, size = total_citations)) +
     geom_point(color = "grey10") +
     scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-    scale_size_area(max_size = 10, breaks = c(10, 30, 50, 70, 90)) +
+    scale_size_area(max_size = 10) +
     labs(
       x = "Ratio of 'unsustainable' mentions",
       y = "",
@@ -1790,7 +1818,7 @@ plot_species_map_massif <- function(species_name) {
   )
 }
 
-species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Narcissus pseudonarcissus") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Filipendula ulmaria") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
+species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Filipendula ulmaria") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_dpt 
 
 # plot_zoom_png?width=905&height=697
@@ -1802,7 +1830,7 @@ species_maps_dpt
 dev.off()
 
 
-species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Narcissus pseudonarcissus") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Filipendula ulmaria") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
+species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Filipendula ulmaria") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_massif
 
 # plot_zoom_png?width=905&height=697
@@ -1867,20 +1895,113 @@ plot_map_France_dpt() + plot_map_France_massif() + plot_annotation(tag_levels = 
 dev.off()
 
 
-########################
+##### Plot distribution of species rarity ####
+# Prepare datasets
+data_rarity_plot <- all_data %>% select(CD_REF, sp_area_FR) %>%
+  unique() %>%
+  mutate(in_survey="yes") %>%
+  full_join(all_rarity %>% select(CD_REF, sp_area_FR) %>%
+              unique() %>% mutate(in_survey ="no")) %>% # want to keep all species from all_rarity
+  na.omit()
+
+quantiles_all <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="no"], 
+                          probs = c(0.25, 0.5, 0.75))
+quantiles_survey <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="yes"], 
+                             probs = c(0.25, 0.5, 0.75))
+
+France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
+  summarise(total_area = sum(dpt_area)) %>% pull(total_area)
+
+
+
+ggplot(data_rarity_plot, aes(x = 100*sp_area_FR/France, fill = in_survey)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+  
+  geom_vline(xintercept = 100*quantiles_all/France,
+             linetype = "dashed", color = "blue", size = 1) +
+  geom_vline(xintercept = 100*quantiles_survey/France,
+             linetype = "dashed", color = "red", size = 1) +
+  
+  annotate("text",
+           x = 100*quantiles_all/France,
+           y = Inf,
+           label = paste0(names(quantiles_all),
+                          "% total flora"),
+           angle = 90,
+           vjust = -0.1,
+           hjust = 1,
+           color = "blue") +
+  
+  annotate("text",
+           x = 100*quantiles_survey/France,
+           y = Inf,
+           label = paste0(names(quantiles_survey),
+                          "% survey species"),
+           angle = 90,
+           vjust = -0.1,
+           hjust = 1,
+           color = "red") +
+  
+  scale_x_continuous(breaks = c(0, 5, 10, 20, 25, 50, 75, 100)) +
+  
+  scale_fill_manual(
+    name = "",
+    values = c("no" = "blue", "yes" = "red"),
+    labels = c("Total flora", "Species in survey")
+  ) +
+  
+  theme_minimal() +
+  labs(
+    x = "Species area in France (%)",
+    y = "Number of species"
+  )
+
+##### Plot rare species sustainability ####
+France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
+  summarise(total_area = sum(dpt_area)) %>% pull(total_area)
+
+plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
+                        filter(relative_sp_area_FR < 15 &
+                                 native=="native"), n = NULL,
+                      min_ratio=0.1, min_citations=2, max_citations=7)
+
+plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
+                        filter(relative_sp_area_FR < 20 &
+                                 native=="native"), n = NULL,
+                      min_ratio=0.1, min_citations=2, max_citations=7)
+# max citations=7 because the 40 most cited species are cited minimum 8 times (Artemisia genipi)
+
+# plot_zoom_png?width=786&height=416
+png("plots/Figure_3_rare_species_20pct.png", 
+    width = 2358,
+    height = 1248,
+    res = 300)
+plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
+                        filter(relative_sp_area_FR < 20 &
+                                 native=="native"), n = NULL,
+                      min_ratio=0.1, min_citations=2, max_citations=7)
+dev.off()
+
+# plot_zoom_png?width=786&height=397
+png("plots/Figure_3_rare_species_15pct.png", 
+    width = 2358,
+    height = 1191,
+    res = 300)
+plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
+                        filter(relative_sp_area_FR < 15 &
+                                 native=="native"), n = NULL,
+                      min_ratio=0.1, min_citations=2, max_citations=7)
+dev.off()
+
+
 
 #### Overview of harvesting issues in France ####
 # x axis = number of departements with a "non durable" answer / number of departements the species is cited in
 data_enjeux <- all_rarity %>%
-  inner_join(all_data %>% dplyr::select(-sp_relative_area, -dpt_area), by="CD_REF") %>% # "inner" removes species without CD_REF !
+  inner_join(all_data %>% dplyr::select(-sp_relative_area, -dpt_area, -sp_area_FR), by="CD_REF") %>% # "inner" removes species without CD_REF !
   dplyr::select(CD_REF, id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
-                dpt_name, dpt_simple, dpt_area, sp_relative_area) %>%
+                dpt_name, dpt_simple, dpt_area, sp_relative_area, sp_area_FR) %>%
   mutate(sp_relative_area = ifelse(is.na(sp_relative_area), 0, sp_relative_area)) %>%
-  group_by(CD_REF, ESPECE_nom) %>%
-  mutate(
-    species_area_FR = sum(sp_relative_area * dpt_area, na.rm = TRUE)
-  ) %>%
-  ungroup() %>%
   unique() %>%
   na.omit() %>%
   mutate(n_answers = ifelse(ESPECE_dpt==dpt_simple, 1, 0)) %>%
@@ -1892,7 +2013,7 @@ data_enjeux <- all_rarity %>%
     values_fill = 0
   ) %>%
   # Summarise data per département to get the total number of answers per département, and proportion of non durable answers
-  group_by(CD_REF, ESPECE_nom, dpt_name, sp_relative_area, species_area_FR) %>%
+  group_by(CD_REF, ESPECE_nom, dpt_name, sp_relative_area, sp_area_FR) %>%
   summarise(across(c(n_answers_Non_durable, n_answers_Durable), sum),
             .groups = "drop") %>%
   mutate(total_answers_all = n_answers_Non_durable + n_answers_Durable,
@@ -1905,7 +2026,7 @@ data_enjeux <- all_rarity %>%
   # Join with the harvesting areas
   full_join(massifs_simple, join_by("dpt_name"=="dpt")) %>%
   # Summarise data per harvesting area to get the % of départements with a citation that have 1 "non durable" citations
-  group_by(CD_REF, ESPECE_nom, massif, species_area_FR) %>%
+  group_by(CD_REF, ESPECE_nom, massif, sp_area_FR) %>%
   summarise(
     # Number of departments where the species has 1 non durable answer
     nb_non_durable_dpt = sum(n_answers_Non_durable > 0),
@@ -1947,7 +2068,7 @@ data_enjeux <- all_rarity %>%
 
 
 data_enjeux_general <- data_enjeux %>%
-  group_by(CD_REF, ESPECE_nom, species_area_FR, native) %>%
+  group_by(CD_REF, ESPECE_nom, sp_area_FR, native) %>%
   summarise(
     # % of harvesting areas that agree with the unsustainability score
     agreement = sd(non_durable_ratio1, na.rm = TRUE),
@@ -2002,9 +2123,11 @@ data_enjeux_general$non_durable_cat <- cut(
 
 
 ggplot(data_enjeux_general,
-       aes(x = log10(species_area_FR), y = total_answers_all)) +
+       aes(x = log10(sp_area_FR), y = total_answers_all)) +
   geom_point(aes(size = agreement, colour = non_durable_cat),
              alpha = 0.8) +
+  geom_vline(xintercept = log10(quantiles_all), linetype = "dashed", color = "red", size = 1) +
+  geom_vline(xintercept = log10(quantiles_survey), linetype = "dashed", color = "blue", size = 1) +
   scale_colour_manual(
     values = c("lightgreen", "gold", "orange", "darkred"),
     name = "Non-sustainable ratio"
@@ -2038,9 +2161,11 @@ ggplot(data_enjeux_general,
 
 ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
               & non_durable_ratio2>0), # non-native vs invasive ?
-       aes(x = species_area_FR, y = total_answers_all)) +
+       aes(x = 100*sp_area_FR/France, y = total_answers_all)) +
   geom_point(aes(size = agreement, colour = non_durable_cat),
              alpha = 0.8) +
+  geom_vline(xintercept = 100*quantiles_all/France, linetype = "dashed", color = "red", size = 1) +
+  geom_vline(xintercept = 100*quantiles_survey/France, linetype = "dashed", color = "blue", size = 1) +
   scale_colour_manual(
     values = c("lightgreen", "gold", "orange", "darkred"),
     name = "Non-sustainable ratio"
@@ -2121,20 +2246,7 @@ ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native"
 #   theme_minimal()
 
 
-##### Plot distribution of species rarity ####
 
-p <- ggplot(data_enjeux_general, aes(x = species_area_FR)) +
-  geom_density(fill = "blue", alpha = 0.5) +
-  scale_x_continuous(breaks = seq(min(data_enjeux_general$species_area_FR), 
-                                  max(data_enjeux_general$species_area_FR), 
-                                  length.out = 10)) +  # Adjust 'length.out' to change number of ticks
-  theme_minimal()
-
-# Convert to interactive plotly object
-interactive_plot <- ggplotly(p)
-
-# Show the interactive plot
-interactive_plot
 
 
 
