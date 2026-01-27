@@ -585,7 +585,7 @@ all_data <- df_profile_renamed %>%
   dplyr::select(-matches("ESPECE_usages_NA$")) %>%
   
   # Add taxref, Raunkiaer, CSR, species presence (cover %) per département, species status (native...)
-  left_join(taxref, by = c("ESPECE_nom" = "LB_NOM")) %>%
+  inner_join(taxref, by = c("ESPECE_nom" = "LB_NOM")) %>% # doesn't keep mushrooms, or species identified at the genus level
   left_join(raunkieaer, by = "CD_REF") %>%
   left_join(csr, by = "CD_REF") %>%
   left_join(all_rarity, by = join_by("CD_REF", "ESPECE_dpt"=="dpt_simple")) %>%
@@ -827,7 +827,7 @@ plot_durability_ratio <- function(data, n = NULL,
     ) +
     theme_minimal(base_size = 14) +
     theme(
-      axis.text.y = element_text(size = 12),
+      axis.text.y = element_text(size = 12, face = "italic"),
       axis.text.x = element_text(size = 12),
       axis.title.x = element_text(size = 14),
       legend.title = element_text(size = 13),
@@ -853,76 +853,27 @@ plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
 dev.off()
 
 
-# plot_durability_ratio_exclude_top <- function(data, exclude_n = 40) {
-#   
-#   # All species by total citations
-#   species_ranked <- data %>%
-#     filter(!is.na(CD_REF)) %>%
-#     dplyr::select(ESPECE_nom, id) %>%
-#     unique() %>%
-#     count(ESPECE_nom, name = "total_citations") %>%
-#     arrange(desc(total_citations))
-#   
-#   # Species to include (exclude top 'exclude_n')
-#   species_to_plot <- species_ranked %>%
-#     slice((exclude_n + 1):n()) %>%
-#     pull(ESPECE_nom)
-#   
-#   # Summarise counts + ratio
-#   df_summary <- data %>%
-#     filter(ESPECE_nom %in% species_to_plot) %>%
-#     distinct(id, ESPECE_nom, ESPECE_durabilite) %>%
-#     count(ESPECE_nom, ESPECE_durabilite) %>%
-#     group_by(ESPECE_nom) %>%
-#     mutate(
-#       total_citations = sum(n),
-#       ratio_non_durable = sum(n[ESPECE_durabilite == "Non durable"], na.rm = TRUE) / sum(n)
-#     ) %>%
-#     summarise(
-#       ratio_non_durable = unique(ratio_non_durable),
-#       total_citations = unique(total_citations),
-#       .groups = "drop"
-#     ) %>%
-#     filter(ratio_non_durable > 0) %>%
-#     arrange(desc(ratio_non_durable)) %>%
-#     mutate(
-#       ESPECE_nom = factor(ESPECE_nom, levels = unique(ESPECE_nom)),
-#       total_citations = factor(total_citations)  # treat as discrete
-#     )
-#   
-#   # Qualitative palette for discrete citation counts
-#   n_levels <- nlevels(df_summary$total_citations)
-#   
-#   
-#   # Dot plot: combine color and size in one legend
-#   ggplot(df_summary, aes(x = ratio_non_durable, y = ESPECE_nom)) +
-#     geom_point(aes(color = total_citations, size = total_citations), alpha = 0.8) +
-#     scale_color_manual(values = c("cornflowerblue", "seagreen", "gold", "purple")) +
-#     scale_size_manual(values = seq(3, 8, length.out = n_levels)) +
-#     scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-#     labs(
-#       title = paste("Ratio of non-sustainable citations (excluding top", exclude_n, "species)"),
-#       x = "Ratio of non-sustainable citations",
-#       y = "",
-#       color = "Number of citations",
-#       size = "Number of citations"
-#     ) +
-#     guides(
-#       color = guide_legend(
-#         override.aes = list(size = seq(3, 8, length.out = n_levels))
-#       ),
-#       size = "none"  # hide separate size legend
-#     ) +
-#     theme_minimal() +
-#     theme(
-#       legend.position = "bottom",
-#       plot.title = element_text(hjust = 0.5),
-#       legend.box = "horizontal"
-#     )
-# }
-# 
-# # Example call
-# plot_durability_ratio_exclude_top(all_data %>% filter(!is.na(ESPECE_nom)), exclude_n = 40)
+#### % of unsustainable species ####
+summary_unsustainable_species <- df_all_species_data %>%
+  mutate(flag = 1) %>%
+  pivot_wider(
+    names_from = durabilite,
+    values_from = flag,
+    values_fill = NA  # fill missing combinations with 0
+  ) %>%
+  group_by(nom) %>%
+  summarise(Non_durable = sum(`Non durable`, na.rm=T),
+            Durable = sum(Durable, na.rm=T),
+            Ratio = round(100*Non_durable/(Non_durable+Durable), 2), 
+            .groups = "drop")
+
+total_ratio_unsustainable <- summary_unsustainable_species %>%
+  summarise(mean_ratio=mean(Ratio, na.rm=T))
+total_ratio_unsustainable
+
+percent_unsustainable <- summary_unsustainable_species %>%
+  summarise(percent = round(100 * mean(Ratio >+ 50), 2))
+percent_unsustainable
 
 
 ####_________####
@@ -1597,89 +1548,6 @@ citations_by_species_massif <- citations_by_species_dpt %>%
   ungroup() %>%
   na.omit()
 
-
-plot_species_map_generic <- function(
-    spatial_data,
-    data,
-    species_name,
-    join_by_expr,
-    value_non_durable,
-    value_durable,
-    value_total,
-    global_max,
-    subtitle
-) {
-  
-  map_data <- spatial_data %>%
-    left_join(
-      data %>% filter(nom == species_name),
-      by = join_by_expr
-    ) %>%
-    st_as_sf() %>%
-    mutate(
-      prop_non_durable = ifelse(
-        {{ value_total }} > 0,
-        round({{ value_non_durable }} / {{ value_total }} * 100, 2),
-        0
-      )
-    )
-  
-  centroids <- map_data %>%
-    mutate(geometry = st_centroid(geometry))
-    
-  plot_prop <- ggplot(map_data) +
-    geom_sf(aes(fill = prop_non_durable), colour = "white", linewidth = 0.2) +
-    
-    # geom_sf_text(
-    #   data = subset(map_data, !is.na(prop_non_durable)),
-    #   aes(label = paste0(prop_non_durable, "%")),
-    #   size = 3
-    # ) +
-    
-    # geom_sf_text(
-    #   aes(label = total_citations),
-    #   size = 3
-    # ) +
-
-    scale_fill_distiller(
-      palette = "Reds",
-      limits = c(0, 100),
-      direction = 1,
-      na.value = "grey80",
-      oob = scales::squish
-    ) +
-    geom_sf(
-      data = centroids,
-      ggplot2::aes(size = {{ value_total }}),
-      shape = 21,
-      fill = "black",
-      colour = "white",
-      alpha = 0.5,
-      stroke = 0.3
-    ) +
-    scale_size_continuous(
-      limits = c(1, global_max),
-      range = c(1, 10),
-      guide = ggplot2::guide_legend(title = "Total mentions")
-    ) +
-    theme_void(base_size = 14) +
-    labs(fill = "Percentage of
-'unsustainable' mentions"
-    ) +
-    theme(
-      legend.title = element_text(size = 13),
-      legend.text = element_text(size = 12),
-      plot.title = element_text(hjust = 0.5, face = "bold"),
-      plot.subtitle = element_text(hjust = 0.5))
-  
-  plot_prop +
-    labs(
-      title = species_name,
-      subtitle = paste("mentions", subtitle)
-    )
-}
-
-
 plot_species_map_generic <- function(
     spatial_data,
     data,
@@ -1721,31 +1589,31 @@ plot_species_map_generic <- function(
       colour = "white",
       linewidth = 0.2
     ) +
-    scale_fill_distiller(
-      palette = "Reds",
+  
+    scale_fill_stepsn(
+      colours = c("#6D9E90", "#F7DC58", "#F39A43", "#900202"),
+      breaks = c(0, 25, 50, 75, 100),
       limits = c(0, 100),
-      direction = 1,
+      labels = c("0%", "25%", "50%", "75%", "100%"),
       na.value = "grey80",
-      oob = scales::squish
+      name = "'Unsustainable' mentions"
     ) +
+    
     geom_sf(
       data = centroids,
       aes(size = {{ value_total }}),
       shape = 21,
       fill = "black",
       colour = "white",
-      alpha = 0.5,
+      alpha = 0.42,
       stroke = 0.3
     ) +
     theme_void(base_size = 14) +
-    labs(
-      fill = "Percentage of\n'unsustainable' mentions"
-    ) +
     theme(
       legend.title = element_text(size = 13),
       legend.text = element_text(size = 12),
-      plot.title = element_text(hjust = 0.5, face = "bold"),
-      plot.subtitle = element_text(hjust = 0.5)
+      plot.title = element_text(hjust = 0.5, size = 13, face="italic"),
+      plot.margin = margin(t = 30)
     )
   
   if (!is.null(species_name) && !is.null(global_max)) {
@@ -1765,10 +1633,9 @@ plot_species_map_generic <- function(
   
   p +
     labs(
-      title = ifelse(is.null(species_name), "All species", species_name),
-      subtitle = paste("mentions", subtitle)
-    )
+      title = ifelse(is.null(species_name), "", species_name))
 }
+
 
 plot_species_map_dpt <- function(species_name) {
   
@@ -1785,9 +1652,7 @@ plot_species_map_dpt <- function(species_name) {
     value_non_durable = `Non durable`,
     value_durable = Durable,
     value_total = total_citations,
-    global_max = global_max,
-    subtitle = "by department"
-  )
+    global_max = global_max )
 }
 
 
@@ -1813,9 +1678,7 @@ plot_species_map_massif <- function(species_name) {
     value_non_durable = Non_durable,
     value_durable = Durable,
     value_total = total_citations,
-    global_max = global_max,
-    subtitle = "by harvesting area"
-  )
+    global_max = global_max)
 }
 
 species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Filipendula ulmaria") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
@@ -1895,6 +1758,127 @@ plot_map_France_dpt() + plot_map_France_massif() + plot_annotation(tag_levels = 
 dev.off()
 
 
+##### SD of unsustainable citation ratio across harvesting areas ####
+national_summary <- citations_by_species_massif %>%
+  group_by(massif) %>%
+  summarise(
+    Non_durable = sum(Non_durable),
+    total_citations = sum(total_citations),
+    ratio_unsustainable = 100 * Non_durable / total_citations,
+    .groups = "drop"
+  )
+
+ratios <- national_summary$ratio_unsustainable
+n <- length(ratios)
+mean_ratio <- mean(ratios)
+sd_ratio <- sd(ratios)
+se <- sd_ratio / sqrt(n)
+ci_lower <- mean_ratio - 1.96 * se
+ci_upper <- mean_ratio + 1.96 * se
+
+mean_ratio
+ci_lower
+ci_upper
+
+
+##### Effect of departements on harvesting sustainablity ####
+
+# citations_by_species_dpt$response <- with(citations_by_species_dpt, cbind(`Non durable`, Durable))
+citations_by_species_dpt$ratio <- round(citations_by_species_dpt$`Non durable`/
+  citations_by_species_dpt$total_citations,2)
+
+
+# Step 1: Fit models for each species
+models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
+  df_sp <- filter(citations_by_species_dpt, nom == sp)
+  all_constant <- all(df_sp$`Non durable` == 0 | df_sp$Durable == 0)
+  
+  # Check why we would skip
+  if(length(unique(df_sp$dpt)) < 2) {
+    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "only 1 department"))
+  }
+  if(all_constant) {
+    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "constant response"))
+  }
+  
+  # Fit GLMM
+  model <- glmer(cbind(`Non durable`, Durable) ~ 1 + (1 | dpt),
+                 data = df_sp, family = binomial)
+  
+  # Check if model is singular
+  singular_flag <- isSingular(model)
+  
+  list(skipped = FALSE, model = model, singular = singular_flag, reason_skipped = NA)
+})
+names(models) <- unique(citations_by_species_dpt$nom)
+
+# Step 2: Build national-level summary
+summary_species <- data.frame(
+  nom = character(),
+  observed_ratio = numeric(),
+  pred_prob = numeric(),
+  pred_prob_logit = numeric(),
+  var_dpt = numeric(),
+  sd_dpt = numeric(),
+  skipped = logical(),
+  singular = logical(),
+  reason_skipped = character(),
+  stringsAsFactors = FALSE
+)
+
+for(sp in names(models)) {
+  df_sp <- filter(citations_by_species_dpt, nom == sp)
+  
+  # Observed ratio (national)
+  total_non <- sum(df_sp$`Non durable`)
+  total_all <- sum(df_sp$`Non durable` + df_sp$Durable)
+  obs_ratio <- ifelse(total_all > 0, total_non / total_all, NA)
+  
+  if(models[[sp]]$skipped) {
+    pred_prob <- NA
+    pred_prob_logit <- NA
+    var_dpt <- NA
+    sd_dpt <- NA
+    flagged <- TRUE
+    singular_flag <- NA
+    reason <- models[[sp]]$reason_skipped
+  } else {
+    model <- models[[sp]]$model
+    pred_prob <- plogis(fixef(model))              # national-level predicted probability
+    pred_prob_logit <- fixef(model)            # national-level predicted probability
+    var_dpt <- as.numeric(VarCorr(model)$dpt[1])  # random effect variance
+    sd_dpt <- sqrt(var_dpt)
+    flagged <- FALSE
+    singular_flag <- models[[sp]]$singular
+    reason <- NA
+  }
+  
+  summary_species <- rbind(summary_species,
+                           data.frame(
+                             nom = sp,
+                             observed_ratio = obs_ratio,
+                             pred_prob = pred_prob,
+                             pred_prob_logit = pred_prob_logit,
+                             sd_dpt = sd_dpt,
+                             skipped = flagged,
+                             singular = singular_flag,
+                             reason_skipped = reason,
+                             stringsAsFactors = FALSE
+                           ))
+}
+
+# Optional: sort by observed ratio
+summary_species <- summary_species %>% arrange(desc(observed_ratio))
+
+summary_species
+
+
+summary(models$`Allium ursinum`$model)
+
+
+
+
+
 ##### Plot distribution of species rarity ####
 # Prepare datasets
 data_rarity_plot <- all_data %>% select(CD_REF, sp_area_FR) %>%
@@ -1961,11 +1945,6 @@ France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_are
   summarise(total_area = sum(dpt_area)) %>% pull(total_area)
 
 plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
-                        filter(relative_sp_area_FR < 15 &
-                                 native=="native"), n = NULL,
-                      min_ratio=0.1, min_citations=2, max_citations=7)
-
-plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
                         filter(relative_sp_area_FR < 20 &
                                  native=="native"), n = NULL,
                       min_ratio=0.1, min_citations=2, max_citations=7)
@@ -1982,19 +1961,9 @@ plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/F
                       min_ratio=0.1, min_citations=2, max_citations=7)
 dev.off()
 
-# plot_zoom_png?width=786&height=397
-png("plots/Figure_3_rare_species_15pct.png", 
-    width = 2358,
-    height = 1191,
-    res = 300)
-plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
-                        filter(relative_sp_area_FR < 15 &
-                                 native=="native"), n = NULL,
-                      min_ratio=0.1, min_citations=2, max_citations=7)
-dev.off()
 
 
-
+###_####
 #### Overview of harvesting issues in France ####
 # x axis = number of departements with a "non durable" answer / number of departements the species is cited in
 data_enjeux <- all_rarity %>%
@@ -2457,7 +2426,7 @@ regulation_plot <- count_regul_answers + pct_correct_regul + plot_annotation(tag
 regulation_plot
 
 # plot_zoom_png?width=982&height=515
-png("Figure_4_regulations.png", 
+png("plots/Figure_4_regulations.png", 
     width = 2946,     # pixels
     height = 1143,   # pixels
     res = 300)        # resolution in dpi
