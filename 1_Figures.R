@@ -61,9 +61,12 @@ taxref <-  read.delim("raw_data/TAXREF_v17_2024/TAXREFv17.txt") %>%
 all_rarity <-  read.csv("raw_data/OpenObs+GBIF_RARITY_20km.csv") %>%
   dplyr::select(CD_REF, dpt_area, sp_area, dpt_name, sp_relative_area) %>%
   mutate(dpt_simple =  str_replace_all(dpt_name, "[-']", " "),
-         dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT")) %>%
-  left_join(all_rarity %>% group_by(CD_REF) %>% # add a column with total species area in France
-              summarise(sp_area_FR=sum(sp_area)))
+         dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"))
+
+all_rarity <- all_rarity %>% left_join(all_rarity %>% 
+                                         group_by(CD_REF) %>% 
+                                         # add a column with total species area in France
+                                         summarise(sp_area_FR=sum(sp_area)))
   
 
 raunkieaer <- read.csv("processed_data/type_bio.csv") %>%
@@ -92,9 +95,8 @@ vascular <- read.csv("raw_data/list_vascular_v17.csv") %>%
 
 
 ####_________####
-#### Visualise biogeographical clusters of departements ####
-clusters <- read.csv("raw_data/WHP_biogeo_clustering/7clusters_chisq_no_transfo_20.csv")
 
+#### Visualise harvesting areas ####
 departements_simpl_PARIS <- departements %>%
   # Create a grouping variable: "IDF" for Ile-de-France, and the original "code" for others
   mutate(group = if_else(region == "Ile-de-France", "IDF", code)) %>%
@@ -117,27 +119,7 @@ departements_simpl_PARIS <- departements %>%
   # Remove the "group" variable created for the aggregation
   dplyr::select(-group)
 
-departements_clus <- full_join(departements_simpl_PARIS, clusters, 
-                               by=join_by("code"=="departement"))
 
-departements_clus$clus_ward_cut <- as.factor(departements_clus$clus_ward_cut)
-
-
-plot_clus <- ggplot() +
-  geom_sf(data = departements_clus, 
-          aes(fill=clus_ward_cut), colour="white")+
-  ggtitle(label="Clustering") +
-  scale_fill_manual(name="Cluster", values=c('#117733','#CC6677','#44AA99','#DDCC77','#332288','#88CCEE', '#882255','#AA4499',"black",'#999933')) +
-  theme(axis.text.x=element_blank(),
-        axis.ticks.x=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank(),
-        panel.background = element_blank())
-
-plot_clus
-
-
-#### Visualise harvesting areas ####
 plot_massifs <- ggplot() +
   geom_sf(data = departements_simpl_PARIS, 
           aes(fill=massif), colour="white")+
@@ -546,14 +528,6 @@ all_data <- df_profile_renamed %>%
     )
   ) %>%
   
-  # Add clusters
-  left_join(departements_clus %>% 
-              st_drop_geometry() %>%
-              dplyr::select(dpt_simple, clus_ward_cut, massif),
-            by = c("ESPECE_dpt" = "dpt_simple")) %>%
-  mutate(biogeo_cluster = clus_ward_cut) %>%
-  dplyr::select(-clus_ward_cut) %>%
-  
   # Group harvested parts
   mutate(ESPECE_parties_cueill_grp = case_when(
     ESPECE_parties_cueill %in% c("Feuilles", "Bourgeons", "Partie aerienne", "Jeunes pousses") ~ "Partie_aerienne",
@@ -585,12 +559,13 @@ all_data <- df_profile_renamed %>%
   dplyr::select(-matches("ESPECE_usages_NA$")) %>%
   
   # Add taxref, Raunkiaer, CSR, species presence (cover %) per département, species status (native...)
-  inner_join(taxref, by = c("ESPECE_nom" = "LB_NOM")) %>% # doesn't keep mushrooms, or species identified at the genus level
+  left_join(taxref, by = c("ESPECE_nom" = "LB_NOM")) %>%
   left_join(raunkieaer, by = "CD_REF") %>%
   left_join(csr, by = "CD_REF") %>%
   left_join(all_rarity, by = join_by("CD_REF", "ESPECE_dpt"=="dpt_simple")) %>%
   left_join(vascular) %>%
-  dplyr::select(-dpt_name) %>%
+  left_join(departements_simpl_PARIS %>% dplyr::select(dpt_simple, massif), join_by("ESPECE_dpt"=="dpt_simple")) %>%
+  dplyr::select(-dpt_name, -geometry) %>%
   
   # Convert to factors (excluding key cols)
   mutate(across(-c(id, ESPECE_nom, CD_REF, C, S, R, sp_relative_area, sp_area, sp_area_FR), as.factor))
@@ -605,11 +580,20 @@ all_data_corresp <- all_data %>%
             by="ESPECE_nom") 
 
 number_non_plant <- all_data_corresp[all_data_corresp$Commentaire %in% c("Champignon", "Algue", "Lichen"),]
+number_non_plant
 number_genus <- all_data_corresp[is.na(all_data_corresp$CD_REF) &
                                    !(all_data_corresp$Commentaire %in% c("Champignon", "Algue", "Lichen")),]
+number_genus
 # non plants : 27/1117=2.4%
 # genus level : 41/1117=3.7%
 
+length(unique(number_non_plant$id)) # 27 non plant respondents
+length(unique(number_genus$id)) # 40 respondents giving species genera only
+length(unique(all_data_corresp$id)) # 536 total respondents
+
+# remove keep mushrooms, or species identified at the genus level for the rest of the analysis
+all_data <- all_data %>%
+  filter(!is.na(CD_REF)) # 469 total respondents
 
 ####_________####
 #### How many species in common with the 1st paper ? ####
@@ -624,19 +608,25 @@ in_common$in_survey <- "yes"
 in_common <- in_common %>%
   full_join(list_1st_paper)
 
+
+# Nb of plants in Lescure list
+nrow(unique(subset(in_common, !is.na(CD_REF) & first_paper=="yes", select=CD_REF))) #692, excluding mushrooms/lichen/algue
+
 # Nb of plants cited in survey that were in the 1st paper
-nrow(unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & first_paper=="yes", select=ESPECE_nom)))
-unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & first_paper=="yes", select=ESPECE_nom))
-unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & first_paper=="yes", select=ESPECE_nom))
+nrow(unique(subset(in_common, in_survey=="yes" & first_paper=="yes", select=ESPECE_nom)))
+unique(subset(in_common, in_survey=="yes" & first_paper=="yes", select=ESPECE_nom))
+# 109 species in common
+nrow(unique(subset(in_common, in_survey=="yes" &  !is.na(CD_REF), select=ESPECE_nom)))
+# 146 species cited (excluding mushrooms/lichen/algue and species identified at the genus level)
+# 109/146=74.7% of species cited here are present in the first list
+# 109/692=15.7% of species from the first list are cited here
 
 # Nb of new plants
 nrow(unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & is.na(first_paper), select=ESPECE_nom)))
 unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & is.na(first_paper), select=ESPECE_nom))
+# 37 new plants
 unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & is.na(first_paper) 
-              & Commentaire != "Champignon", select=ESPECE_nom))
-
-# Nb of plants in Lescure list
-nrow(unique(subset(in_common, !is.na(CD_REF) & first_paper=="yes", select=CD_REF)))
+              & !Commentaire %in%  c("Champignon", "Algue", "Lichen"), select=ESPECE_nom)) # species identified to genus level, 15 "species"
 
 
 ####_________####
@@ -671,13 +661,13 @@ all_cited <- ggplot(df_species, aes(x = fct_reorder(ESPECE_nom, -citations), y =
   scale_x_discrete(labels = function(x) ifelse(x %in% top10_species, x, "")) +
   labs(
     title = "Amount of citations per species",
-    subtitle = paste("Showing only species cited more than once (", nrow(df_species), " of 172 species )"),
+    subtitle = paste("Showing only species cited more than once (", nrow(df_species), " of 146 species )"),
     x = "",
     y = "Citation count"
   ) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
+all_cited
 
 # 172 different cited species
 
@@ -760,6 +750,16 @@ plot_cumulative_species <- function(data) {
 
 plot_cumulative_species(all_data)
 
+
+# Percentage of species with 1 mention :
+sp_mentions <- all_data %>% group_by(CD_REF, ESPECE_nom) %>%
+  summarise(n_mentions=n())
+# Allium ursinum has 101 mentions
+nrow(sp_mentions %>% filter(n_mentions==1))
+nrow(sp_mentions)
+# 62/145=42.7% of species with only one mention
+
+
 ####_________####
 #### Figure 1 - Harvesting sustainability of the 20 most cited species ####
 plot_durability_ratio <- function(data, n = NULL,
@@ -817,8 +817,13 @@ plot_durability_ratio <- function(data, n = NULL,
   
   # Dot plot
   ggplot(df_summary, aes(x = ratio_non_durable, y = ESPECE_nom, size = total_citations)) +
+    # Add vertical line at 50%
+    geom_vline(xintercept = 0.5, color = "grey70", linewidth = .3, linetype = "solid") +
     geom_point(color = "grey10") +
-    scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+    scale_x_continuous(
+      labels = scales::percent_format(accuracy = 1),
+      limits = c(0, 1)  # 0% to 100%
+    ) +
     scale_size_area(max_size = 10) +
     labs(
       x = "Ratio of 'unsustainable' mentions",
@@ -834,22 +839,19 @@ plot_durability_ratio <- function(data, n = NULL,
       legend.text = element_text(size = 12),
       legend.position = "bottom",
       axis.line = element_line(color = "black", linewidth = 0.4),
-      axis.ticks = element_line(color = "black", linewidth = 0.4))
+      axis.ticks = element_line(color = "black", linewidth = 0.4)
+    )
 }
 
 plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
 
 
-# plot_zoom_png?width=786&height=585
+# plot_zoom_png?width=786&height=600
 png("plots/Figure_1_durability_ratio.png", 
     width = 2358,     # pixels
-    height = 1755,   # pixels
+    height = 1800,   # pixels
     res = 300)        # resolution in dpi
-
-# Your plot code
 plot_durability_ratio(all_data %>% filter(!is.na(ESPECE_nom)), n = 20)
-
-# Close the device
 dev.off()
 
 
@@ -873,7 +875,442 @@ total_ratio_unsustainable
 
 percent_unsustainable <- summary_unsustainable_species %>%
   summarise(percent = round(100 * mean(Ratio >+ 50), 2))
-percent_unsustainable
+percent_unsustainable # 36% of the species were, on average, perceived as being harvested unsustainably
+
+####_________####
+#### Figure 2 - Rare species sustainability issues #####
+#### Effect of departements on harvesting sustainablity ####
+
+# citations_by_species_dpt$response <- with(citations_by_species_dpt, cbind(`Non durable`, Durable))
+citations_by_species_dpt$ratio <- round(citations_by_species_dpt$`Non durable`/
+                                          citations_by_species_dpt$total_citations,2)
+
+
+# Step 1: Fit models for each species
+models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
+  df_sp <- filter(citations_by_species_dpt, nom == sp)
+  all_constant <- all(df_sp$`Non durable` == 0 | df_sp$Durable == 0)
+  
+  # Check why we would skip
+  if(length(unique(df_sp$dpt)) < 2) {
+    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "only 1 department"))
+  }
+  if(all_constant) {
+    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "constant response"))
+  }
+  
+  # Fit GLMM
+  model <- glmer(cbind(`Non durable`, Durable) ~ 1 + (1 | dpt),
+                 data = df_sp, family = binomial)
+  
+  # Check if model is singular
+  singular_flag <- isSingular(model)
+  
+  list(skipped = FALSE, model = model, singular = singular_flag, reason_skipped = NA)
+})
+names(models) <- unique(citations_by_species_dpt$nom)
+
+# Step 2: Build national-level summary
+summary_species <- data.frame(
+  nom = character(),
+  observed_ratio = numeric(),
+  pred_prob = numeric(),
+  pred_prob_logit = numeric(),
+  var_dpt = numeric(),
+  sd_dpt = numeric(),
+  skipped = logical(),
+  singular = logical(),
+  reason_skipped = character(),
+  stringsAsFactors = FALSE
+)
+
+for(sp in names(models)) {
+  df_sp <- filter(citations_by_species_dpt, nom == sp)
+  
+  # Observed ratio (national)
+  total_non <- sum(df_sp$`Non durable`)
+  total_all <- sum(df_sp$`Non durable` + df_sp$Durable)
+  obs_ratio <- ifelse(total_all > 0, total_non / total_all, NA)
+  
+  if(models[[sp]]$skipped) {
+    pred_prob <- NA
+    pred_prob_logit <- NA
+    var_dpt <- NA
+    sd_dpt <- NA
+    flagged <- TRUE
+    singular_flag <- NA
+    reason <- models[[sp]]$reason_skipped
+  } else {
+    model <- models[[sp]]$model
+    pred_prob <- plogis(fixef(model))              # national-level predicted probability
+    pred_prob_logit <- fixef(model)            # national-level predicted probability
+    var_dpt <- as.numeric(VarCorr(model)$dpt[1])  # random effect variance
+    sd_dpt <- sqrt(var_dpt)
+    flagged <- FALSE
+    singular_flag <- models[[sp]]$singular
+    reason <- NA
+  }
+  
+  summary_species <- rbind(summary_species,
+                           data.frame(
+                             nom = sp,
+                             observed_ratio = obs_ratio,
+                             pred_prob = pred_prob,
+                             pred_prob_logit = pred_prob_logit,
+                             sd_dpt = sd_dpt,
+                             skipped = flagged,
+                             singular = singular_flag,
+                             reason_skipped = reason,
+                             stringsAsFactors = FALSE
+                           ))
+}
+
+# Optional: sort by observed ratio
+summary_species <- summary_species %>% arrange(desc(observed_ratio))
+
+summary_species
+
+
+summary(models$`Allium ursinum`$model)
+
+
+
+
+
+#### Plot distribution of species rarity ####
+# Prepare datasets
+data_rarity_plot <- all_data %>% select(CD_REF, sp_area_FR) %>%
+  unique() %>%
+  mutate(in_survey="yes") %>%
+  full_join(all_rarity %>% select(CD_REF, sp_area_FR) %>%
+              unique() %>% mutate(in_survey ="no")) %>% # want to keep all species from all_rarity
+  na.omit()
+
+quantiles_all <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="no"], 
+                          probs = c(0.25, 0.5, 0.75))
+quantiles_survey <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="yes"], 
+                             probs = c(0.25, 0.5, 0.75))
+
+France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
+  summarise(total_area = sum(dpt_area)) %>% pull(total_area)
+
+
+
+ggplot(data_rarity_plot, aes(x = 100*sp_area_FR/France, fill = in_survey)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+  
+  geom_vline(xintercept = 100*quantiles_all/France,
+             linetype = "dashed", color = "blue", size = 1) +
+  geom_vline(xintercept = 100*quantiles_survey/France,
+             linetype = "dashed", color = "red", size = 1) +
+  
+  annotate("text",
+           x = 100*quantiles_all/France,
+           y = Inf,
+           label = paste0(names(quantiles_all),
+                          "% total flora"),
+           angle = 90,
+           vjust = -0.1,
+           hjust = 1,
+           color = "blue") +
+  
+  annotate("text",
+           x = 100*quantiles_survey/France,
+           y = Inf,
+           label = paste0(names(quantiles_survey),
+                          "% survey species"),
+           angle = 90,
+           vjust = -0.1,
+           hjust = 1,
+           color = "red") +
+  
+  scale_x_continuous(breaks = c(0, 5, 10, 20, 25, 50, 75, 100)) +
+  
+  scale_fill_manual(
+    name = "",
+    values = c("no" = "blue", "yes" = "red"),
+    labels = c("Total flora", "Species in survey")
+  ) +
+  
+  theme_minimal() +
+  labs(
+    x = "Species area in France (%)",
+    y = "Number of species"
+  )
+
+#### Plot rare species sustainability ####
+France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
+  summarise(total_area = sum(dpt_area)) %>% pull(total_area)
+
+plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
+                        filter(relative_sp_area_FR < 20 &
+                                 native=="native"), n = NULL,
+                      min_ratio=0.1, min_citations=2, max_citations=7)
+# max citations=7 because the 20 most cited species are cited minimum 8 times (Artemisia genipi)
+
+# plot_zoom_png?width=786&height=416
+png("plots/Figure_3_rare_species_20pct.png", 
+    width = 2358,
+    height = 1248,
+    res = 300)
+plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
+                        filter(relative_sp_area_FR < 20 &
+                                 native=="native"), n = NULL,
+                      min_ratio=0.1, min_citations=2, max_citations=7)
+dev.off()
+
+
+
+###_####
+#### Overview of harvesting issues in France ####
+# x axis = number of departements with a "non durable" answer / number of departements the species is cited in
+data_enjeux <- all_rarity %>%
+  inner_join(all_data %>% dplyr::select(-sp_relative_area, -dpt_area, -sp_area_FR), by="CD_REF") %>% # "inner" removes species without CD_REF !
+  dplyr::select(CD_REF, id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
+                dpt_name, dpt_simple, dpt_area, sp_relative_area, sp_area_FR) %>%
+  mutate(sp_relative_area = ifelse(is.na(sp_relative_area), 0, sp_relative_area)) %>%
+  unique() %>%
+  na.omit() %>%
+  mutate(n_answers = ifelse(ESPECE_dpt==dpt_simple, 1, 0)) %>%
+  pivot_wider(
+    names_from = ESPECE_durabilite,
+    values_from = n_answers,
+    names_prefix = "",
+    names_glue = "{.value}_{gsub(' ', '_', .name)}",
+    values_fill = 0
+  ) %>%
+  # Summarise data per département to get the total number of answers per département, and proportion of non durable answers
+  group_by(CD_REF, ESPECE_nom, dpt_name, sp_relative_area, sp_area_FR) %>%
+  summarise(across(c(n_answers_Non_durable, n_answers_Durable), sum),
+            .groups = "drop") %>%
+  mutate(total_answers_all = n_answers_Non_durable + n_answers_Durable,
+         proportion_non_durable = ifelse(n_answers_Non_durable==0, NA, 
+                                         100* n_answers_Non_durable/
+                                           total_answers_all),
+         proportion_non_durable = ifelse(n_answers_Non_durable==0 & 
+                                           n_answers_Durable>0, 0, 
+                                         proportion_non_durable)) %>%
+  # Join with the harvesting areas
+  full_join(massifs_simple, join_by("dpt_name"=="dpt")) %>%
+  # Summarise data per harvesting area to get the % of départements with a citation that have 1 "non durable" citations
+  group_by(CD_REF, ESPECE_nom, massif, sp_area_FR) %>%
+  summarise(
+    # Number of departments where the species has 1 non durable answer
+    nb_non_durable_dpt = sum(n_answers_Non_durable > 0),
+    # Number of non durable answers per harvesting area
+    nb_non_durable = sum(n_answers_Non_durable),
+    # Number of departments where the species has been cited in
+    nb_cited = sum(total_answers_all > 0),
+    # Number of departements where the species is present
+    n_present = sum(sp_relative_area > 20), #############################
+    # Number of departements where the species is present and has at least 1 answer
+    n_present_and_answer = sum(sp_relative_area > 0 &
+                                 total_answers_all > 0),
+    # Total number of answers per harvesting area
+    total_answers_all=sum(total_answers_all),
+    # Non durable answers ratio
+    non_durable_ratio1 = ifelse(total_answers_all > 0,
+                                100 * nb_non_durable
+                                / total_answers_all,
+                                NA),
+    # Number of departments where the species has 1 non durable answer
+    # divided by the number of departments where the species has been cited in
+    non_durable_ratio2 = ifelse(nb_cited > 0,
+                                100 * nb_non_durable_dpt
+                                / nb_cited,
+                                NA),
+    # Answer coverage ratio (Number of departments where the species is present and has at least one answer divided by the number of départements where the species is present)
+    answer_coverage = ifelse(n_present > 0,
+                             100 * n_present_and_answer /
+                               n_present,
+                             NA),
+    .groups = "drop"
+  ) %>%
+  # Round proportions
+  mutate(across(c(non_durable_ratio1, non_durable_ratio2, answer_coverage),
+                ~ round(.x, 1))) %>%
+  
+  # Add species presence statuses from the list of French vascular plants
+  left_join(vascular) 
+
+
+data_enjeux_general <- data_enjeux %>%
+  group_by(CD_REF, ESPECE_nom, sp_area_FR, native) %>%
+  summarise(
+    # % of harvesting areas that agree with the unsustainability score
+    agreement = sd(non_durable_ratio1, na.rm = TRUE),
+    agreement = ifelse(is.na(agreement), 0, agreement),
+    
+    # % of areas in which the species is cited as "non durable" on average 
+    # over the number of areas in which the species was cited
+    non_durable_ratio3 = ifelse(sum(total_answers_all > 0, na.rm = T) > 0,
+                                100 * sum(non_durable_ratio1 > 50, na.rm = T) 
+                                / sum(total_answers_all > 0, na.rm = T),
+                                NA),
+    # Average % of non durable answers / harvesting area
+    non_durable_ratio1 = ifelse(sum(total_answers_all > 0, na.rm = T) > 0,
+                                mean(non_durable_ratio1, na.rm = T),
+                                NA),
+    # Number of harvesting areas where the species has 1 non durable answer
+    # divided by the number of departments where the species has been cited in
+    non_durable_ratio2 = ifelse(sum(total_answers_all > 0, na.rm = T) > 0,
+                                100 * sum(non_durable_ratio2 > 0, na.rm = T) 
+                                / sum(total_answers_all > 0, na.rm = T),
+                                NA),
+    # Answer coverage ratio (number of harvesting areas where the species is present and has at least 1 answer, divided by the number of areas where the species is present in)
+    answer_coverage_harv_area = ifelse(sum(n_present > 0) > 0,
+                                       100 * sum(n_present > 0 &
+                                                   total_answers_all > 0) /
+                                         sum(n_present > 0),
+                                       NA),
+    # Answer coverage ratio (number of departements where the species is present and has at least 1 answer, divided by the number of areas where the species is present in))
+    answer_coverage_dpt = ifelse(sum(n_present > 0) > 0,
+                                 100* sum(n_present_and_answer) / sum(n_present),
+                                 NA),
+    
+    # Number of harvesting areas where the species is present
+    n_present = sum(n_present > 0),
+    
+    # Total number of all answers per species
+    total_answers_all = sum(total_answers_all),
+    .groups = "drop") %>%
+  # Round proportions
+  mutate(across(c(non_durable_ratio1, non_durable_ratio2, non_durable_ratio3,
+                  answer_coverage_harv_area, answer_coverage_dpt, agreement),
+                ~ round(.x, 1)))
+
+
+##### Plot number of citations against species area ####
+data_enjeux_general$non_durable_cat <- cut(
+  data_enjeux_general$non_durable_ratio2,
+  breaks = c(0, 25, 50, 75, 100),  # define 4 bins
+  labels = c("0-25", "25-50", "50-75", "75-100"),
+  include.lowest = TRUE
+)
+
+
+ggplot(data_enjeux_general,
+       aes(x = log10(sp_area_FR), y = total_answers_all)) +
+  geom_point(aes(size = agreement, colour = non_durable_cat),
+             alpha = 0.8) +
+  geom_vline(xintercept = log10(quantiles_all), linetype = "dashed", color = "red", size = 1) +
+  geom_vline(xintercept = log10(quantiles_survey), linetype = "dashed", color = "blue", size = 1) +
+  scale_colour_manual(
+    values = c("lightgreen", "gold", "orange", "darkred"),
+    name = "Non-sustainable ratio"
+  ) +
+  scale_size_continuous(
+    range = c(1, 10),       # min and max point sizes
+    name = "Disagreement (SD of non-sustainable ratio)"
+  ) +
+  geom_text_repel(
+    data = subset(data_enjeux_general, total_answers_all > 7),
+    aes(label = ESPECE_nom),
+    size = 3,
+    max.overlaps = 1000,      # ensure all labels are attempted
+    nudge_y = 1,            # move labels slightly up
+    nudge_x = 0.0,            # optional horizontal adjustment
+    segment.color = "grey50", # color of connecting line
+    segment.size = 0.5,       # line thickness
+    box.padding = 0.5,        # space around text to avoid overlapping
+    point.padding = 0.5,      # extra distance from point
+    force = 2,                # stronger repulsion to avoid overlap
+    direction = "both",       # labels can move vertically and horizontally
+    min.segment.length = 0    # draw line even if text is very close to point
+  ) +
+  theme_minimal()
+
+
+# questions: do i calculate sd among harvesting areas, or directly among dpts
+# is it worth increasing precision of species area calculation (taraxacum vs thymus for example)
+
+
+
+ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
+              & non_durable_ratio2>0), # non-native vs invasive ?
+       aes(x = 100*sp_area_FR/France, y = total_answers_all)) +
+  geom_point(aes(size = agreement, colour = non_durable_cat),
+             alpha = 0.8) +
+  geom_vline(xintercept = 100*quantiles_all/France, linetype = "dashed", color = "red", size = 1) +
+  geom_vline(xintercept = 100*quantiles_survey/France, linetype = "dashed", color = "blue", size = 1) +
+  scale_colour_manual(
+    values = c("lightgreen", "gold", "orange", "darkred"),
+    name = "Non-sustainable ratio"
+  ) +
+  scale_size_continuous(
+    range = c(1, 10),       # min and max point sizes
+    name = "Disagreement (SD of non-sustainable ratio)"
+  ) +
+  geom_text_repel(data=subset(data_enjeux_general, total_answers_all>1 & total_answers_all <= 7 & native=="native" 
+                              & non_durable_ratio2>0),
+                  aes(label = ESPECE_nom),
+                  size = 3,
+                  max.overlaps = 1000,      # ensure all labels are attempted
+                  nudge_y = 0.1,            # move labels slightly up
+                  nudge_x = 0.0,            # optional horizontal adjustment
+                  segment.color = "grey50", # color of connecting line
+                  segment.size = 0.5,       # line thickness
+                  box.padding = 0.5,        # space around text to avoid overlapping
+                  point.padding = 0.5,      # extra distance from point
+                  force = 2,                # stronger repulsion to avoid overlap
+                  direction = "both",       # labels can move vertically and horizontally
+                  min.segment.length = 0    # draw line even if text is very close to point
+  ) +
+  theme_minimal()
+
+
+
+
+# ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
+#               & non_durable_ratio1>0), # non-native vs invasive ?
+#        aes(x = log10(species_area_FR), y = non_durable_ratio2)) +
+#   geom_point(aes(size = agreement),
+#              alpha = 0.8) +
+#   scale_size_continuous(
+#     range = c(1, 10),       # min and max point sizes
+#     name = "Disagreement (SD of non-sustainable ratio)"
+#   ) +
+#   geom_text_repel(
+#     aes(label = ESPECE_nom),
+#     size = 3,
+#     max.overlaps = 1000,      # ensure all labels are attempted
+#     nudge_y = 1,            # move labels slightly up
+#     nudge_x = 0.0,            # optional horizontal adjustment
+#     segment.color = "grey50", # color of connecting line
+#     segment.size = 0.5,       # line thickness
+#     box.padding = 0.5,        # space around text to avoid overlapping
+#     point.padding = 0.5,      # extra distance from point
+#     force = 2,                # stronger repulsion to avoid overlap
+#     direction = "both",       # labels can move vertically and horizontally
+#     min.segment.length = 0    # draw line even if text is very close to point
+#   ) +
+#   theme_minimal()
+# 
+# 
+# ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
+#               & non_durable_ratio1>0), # non-native vs invasive ?
+#        aes(x = agreement, y = total_answers_all)) +
+#   geom_point(aes(size = agreement, colour = non_durable_cat),
+#              alpha = 0.8) +
+#   scale_colour_manual(
+#     values = c("lightgreen", "gold", "orange", "darkred"),
+#     name = "Non-sustainable ratio"
+#   ) +
+#   geom_text_repel(
+#     aes(label = ESPECE_nom),
+#     size = 3,
+#     max.overlaps = 1000,      # ensure all labels are attempted
+#     nudge_y = 1,            # move labels slightly up
+#     nudge_x = 0.0,            # optional horizontal adjustment
+#     segment.color = "grey50", # color of connecting line
+#     segment.size = 0.5,       # line thickness
+#     box.padding = 0.5,        # space around text to avoid overlapping
+#     point.padding = 0.5,      # extra distance from point
+#     force = 2,                # stronger repulsion to avoid overlap
+#     direction = "both",       # labels can move vertically and horizontally
+#     min.segment.length = 0    # draw line even if text is very close to point
+#   ) +
+#   theme_minimal()
 
 
 ####_________####
@@ -909,6 +1346,14 @@ head(ind_coords_particip)
 res.hcpc.particip <- HCPC(res.mca.particip, nb.clust = -1, graph = FALSE) 
 print(res.hcpc.particip$desc.var)
 
+# Recode cluster numbers
+res.hcpc.particip$data.clustclust <- recode(res.hcpc.particip$data.clust$clust,
+                                           `1` = 3,
+                                           `2` = 2,
+                                           `3` = 1) %>%
+  as.factor()
+
+
 ##### Plot clusters ###
 plot_data_particip <- data.frame(
   row_name = rownames(res.mca.particip$ind$coord),
@@ -931,7 +1376,7 @@ plot_MCA_particip <- ggplot(plot_data_particip, aes(Dim.1, Dim.2, color = Cluste
   theme_minimal() +
   scale_color_viridis_d(option = "plasma")
 
-print(plot_MCA_particip)
+plot_MCA_particip
 
 
 ##### Plot clusters with top contributing variables ###
@@ -1016,14 +1461,22 @@ names(d) <- c("id", "species", "harvest_area", "sustainability", "respondent_pro
 
 d$sustainability <- ifelse(d$sustainability == "Durable", 1, 0)
 
-model1 <- glmer(sustainability ~ respondent_profile + (1|species), # + (1|harvest_area)
+model1 <- glmer(sustainability ~ respondent_profile + (1|species),
                 data = d, family = binomial)
-summary(model1) # harvest area has very little effect, can be removed
+summary(model1)
 
+# Odds ratios and contributions
+summary(model1)$coefficients %>%
+  as.data.frame() %>%
+  mutate(
+    Odds_Ratio = exp(Estimate),
+    CI_low = exp(Estimate - 1.96 * `Std. Error`),
+    CI_high = exp(Estimate + 1.96 * `Std. Error`)
+  ) %>%
+  print()
 
 # Count number of respondents per species and profile
-species_profile_counts <- table(d$species, d$respondent_profile)
-species_profile_counts
+table(d$species, d$respondent_profile)
 
 
 ##### Unsustainable known VS respondent profile ####
@@ -1062,11 +1515,12 @@ d2$respondent_profile <- as.factor(d2$respondent_profile)
 
 model3 <- glm(unsustainable_species_known ~ respondent_profile,
               data = d2, family = binomial)
-summary(model3)
+summary(model3) # Profile 3 bordeline significant
+
 
 
 ####_________####
-#### Figure 2 - What variables impact the perception of sustainability ? ####
+#### Figure 3 - What variables impact the perception of sustainability ? ####
 # Variable réponse (binaire : "Durable" / "Non durable")
 data_dfa_durabilite_sp <- all_data %>%
   dplyr::select(id, ESPECE_nom, CD_REF,
@@ -1232,7 +1686,6 @@ dev.off()
 # remove c in gimp
 
 
-
 # --- Cohen's d ---
 group_stats <- plot_data %>%
   group_by(sustainability) %>%
@@ -1244,9 +1697,9 @@ mean_diff <- diff(group_stats$mean_score)
 pooled_sd <- sqrt(((group_stats$sd_score[1]^2)*(group_stats$n[1]-1) +
                      (group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
                     (sum(group_stats$n)-2))
-cohens_d <- mean_diff / pooled_sd
 
-cat("Cohen's d (DS1 separation):", round(cohens_d, 3), "\n")
+cat("Cohen's d (DS1 separation):", round(mean_diff / pooled_sd, 3), "\n")
+# Cohen's d (DS1 separation): 2.8 
 
 
 # --- Classification accuracy ---
@@ -1257,13 +1710,10 @@ lda_data <- data_dfa_durabilite_sp %>%
 lda_fit <- lda(ESPECE_durabilite ~ ., data = lda_data)
 pred <- predict(lda_fit)$class
 
-conf_mat <- table(Predicted = pred, Actual = lda_data$ESPECE_durabilite)
-cat("Confusion matrix:\n")
-print(conf_mat)
+table(Predicted = pred, Actual = lda_data$ESPECE_durabilite) # confusion matrix
 
-accuracy <- mean(pred == lda_data$ESPECE_durabilite)
-cat("Classification accuracy:", round(accuracy*100, 1), "%\n")
-
+cat("Classification accuracy:", round(mean(pred == lda_data$ESPECE_durabilite)*100, 1), "%\n")
+# Classification accuracy: 90.9 %
 
 
 #### Do respondents’ perceptions of rarity and abundance correspond to actual species abundance ? ####
@@ -1273,32 +1723,39 @@ rarity <- all_data %>%
   na.omit()
 
 ##### Kruskal-Wallis test ###
-kruskal_result <- kruskal.test(sp_relative_area ~ ESPECE_presence, data = rarity)
-print(kruskal_result)
+kruskal.test(sp_relative_area ~ ESPECE_presence, data = rarity)
+# Kruskal-Wallis chi-squared = 273.81, df = 4, p-value < 2.2e-16
 
-if (kruskal_result$p.value < 0.05) {
-  print("Groups differ significantly. Performing Dunn's post-hoc test:")
-  
-  library(dunn.test)
-  dunn_result <- dunn.test(rarity$sp_relative_area, rarity$ESPECE_presence, method = "bonferroni")
-  print(dunn_result)
-} else {
-  print("No significant differences between groups.")
-}
-
-# Store the Kruskal-Wallis p-value
-p_value <- kruskal_result$p.value
-p_label <- paste("Kruskal-Wallis, p =", format(p_value, digits = 3))
+kruskal_effsize(sp_relative_area ~ ESPECE_presence , data = rarity)
+# 0.335 effect size, large
 
 # Ensure ESPECE_presence is a factor in the desired order
 ordre_presence <- c("Abondante large", "Abondante locale", "Rare", "Extremement rare", "JNSP")
 rarity$ESPECE_presence <- factor(rarity$ESPECE_presence, levels = ordre_presence)
 
-##### Dunn's test for pairwise comparisons ###
-dunn_result <- rarity %>%
-  rstatix::dunn_test(sp_relative_area ~ ESPECE_presence, p.adjust.method = "bonferroni")
-print(dunn_result)
+##### Dunn's test for pairwise comparisons (because KW test is significant) ###
+rstatix::dunn_test(sp_relative_area ~ ESPECE_presence, p.adjust.method = "bonferroni", data=rarity)
 
+##### Estimates and CI ###
+# compute bootstrapped CI for each group
+set.seed(123)  # for reproducibility
+rarity %>%
+  group_by(ESPECE_presence) %>%
+  summarise(
+    n = n(),
+    median = median(sp_relative_area, na.rm = TRUE),
+    CI_low = {
+      b <- boot(sp_relative_area, 
+                function(data, indices) { # function to bootstrap the median
+        median(data[indices], na.rm = TRUE)
+      }, R = 2000)
+      boot.ci(b, type = "perc")$percent[4]
+    },
+    CI_high = {
+      b <- boot(sp_relative_area, boot_median, R = 2000)
+      boot.ci(b, type = "perc")$percent[5]
+    }
+  )
 
 ##### Plot ###
 ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
@@ -1327,31 +1784,6 @@ ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
     legend.position = "right"
   )
 
-
-##### Estimates and CI ###
-# function to bootstrap the median
-boot_median <- function(data, indices) {
-  median(data[indices], na.rm = TRUE)
-}
-
-# compute bootstrapped CI for each group
-set.seed(123)  # for reproducibility
-boot_results <- rarity %>%
-  group_by(ESPECE_presence) %>%
-  summarise(
-    n = n(),
-    median = median(sp_relative_area, na.rm = TRUE),
-    CI_low = {
-      b <- boot(sp_relative_area, boot_median, R = 2000)
-      boot.ci(b, type = "perc")$percent[4]
-    },
-    CI_high = {
-      b <- boot(sp_relative_area, boot_median, R = 2000)
-      boot.ci(b, type = "perc")$percent[5]
-    }
-  )
-
-print(boot_results)
 
 #### Can species perceived sustainability be predicted from CSR strategy, life form, and distribution characteristics? ####
 ##### DFA ####
@@ -1404,10 +1836,8 @@ ggplot(plot_data, aes(x = score_dfa, fill = group)) +
 correlations <- as.data.frame(res.dfa$va)
 
 sorted_correlations <- correlations[order(abs(correlations$CS1), decreasing = TRUE), , drop = FALSE]
+head(sorted_correlations, 10)
 
-top_contributors <- head(sorted_correlations, 10)
-
-print(top_contributors)
 
 # --- Cohen's d ---
 group_stats <- plot_data %>%
@@ -1432,18 +1862,13 @@ lda_data <- data_dfa_durabilite_sp_bio %>%
 lda_fit <- lda(ESPECE_durabilite ~ ., data = lda_data)
 pred <- predict(lda_fit)$class
 
-conf_mat <- table(Predicted = pred, Actual = lda_data$ESPECE_durabilite)
-cat("Confusion matrix:\n")
-print(conf_mat)
+table(Predicted = pred, Actual = lda_data$ESPECE_durabilite) # Confusion matix
 
-accuracy <- mean(pred == lda_data$ESPECE_durabilite)
-cat("Classification accuracy:", round(accuracy*100, 1), "%\n")
+cat("Classification accuracy:", round(mean(pred == lda_data$ESPECE_durabilite)*100, 1), "%\n")
 
 
 ##### GLM #####
-
-# --- 1. Prepare and Analyze Data ---
-# Chaining data preparation steps with pipes
+# Prepare data
 data_dfa_durabilite_sp_bio <- all_data %>%
   dplyr::select(id, ESPECE_nom, CD_REF, ESPECE_durabilite, C, S, R, 
                 csr_simple, sp_relative_area, choix_type_bio) %>%
@@ -1459,18 +1884,13 @@ data_dfa_durabilite_sp_bio <- all_data %>%
     across(-c(C, S, R, sp_relative_area), as.factor)
   )
 
-
-# --- 2. Fit Logistic Regression ---
-# Use a cleaner formula with the chosen predictor.
-# If you have multiple predictors, list them here, e.g., `y ~ x1 + x2`.
-
+# Regression
 glm_fit <- glm(ESPECE_durabilite ~ sp_relative_area + csr_simple + choix_type_bio,
                data = data_dfa_durabilite_sp_bio,
                family = binomial(link="logit"))
 summary(glm_fit)
 
-
-# --- 3. Get Odds Ratios and Contributions ---
+# Odds ratios and contributions
 summary(glm_fit)$coefficients %>%
   as.data.frame() %>%
   mutate(
@@ -1480,23 +1900,17 @@ summary(glm_fit)$coefficients %>%
   ) %>%
   print()
 
-# --- 4. Evaluate Model Performance ---
-# Combine prediction and evaluation into a single, efficient chunk.
-# Use `predict()` to get a binary outcome directly for the `confusionMatrix`
-# and ensure levels are consistent.
+# Find optimal threshold to culculate model performance
 pred_probs <- predict(glm_fit, newdata = data_dfa_durabilite_sp_bio, type = "response")
 
-# Find optimal threshold by calculating ROC+AUC
-roc_obj <- roc(
+roc_obj <- roc( # use ROC+AUC
   data_dfa_durabilite_sp_bio$ESPECE_durabilite,
   pred_probs,
   levels = c("Non sustainable", "Sustainable"),
   direction = "<"
 )
 
-auc_value <- auc(roc_obj)
-print(auc_value)
-
+auc(roc_obj) # auc value
 
 opt_coords <- coords(
   roc_obj,
@@ -1505,14 +1919,13 @@ opt_coords <- coords(
   ret = c("threshold", "sensitivity", "specificity")
 )
 opt_coords
-opt_thresh <- as.numeric(opt_coords["threshold"])
-print(opt_thresh)
+print(as.numeric(opt_coords["threshold"]))
 
 # Evaluate model performance using optimal threshold
 # Use the same factor levels and order as the actual data
 pred_class <- ifelse(pred_probs > opt_thresh, "Sustainable","Non sustainable")
 pred_class <- factor(pred_class, levels = levels(data_dfa_durabilite_sp_bio$ESPECE_durabilite))
-conf_mat <- confusionMatrix(pred_class, data_dfa_durabilite_sp_bio$ESPECE_durabilite)
+cconfusionMatrix(pred_class, data_dfa_durabilite_sp_bio$ESPECE_durabilite)
 print(conf_mat)
 
 # Extract and print accuracy directly.
@@ -1520,8 +1933,9 @@ cat("Classification accuracy:", round(conf_mat$overall['Accuracy'] * 100, 1), "%
 
 
 
+
 ####_________####
-#### Figure 3 ..... ####
+#### Figure 4 - Spatial distribution of ‘unsustainable’ mentions ####
 #### Plot species maps per département ####
 # Data is already processed in `df_all_species_data`, now join with `departements`
 citations_by_species_dpt <- df_all_species_data %>%
@@ -1758,469 +2172,25 @@ plot_map_France_dpt() + plot_map_France_massif() + plot_annotation(tag_levels = 
 dev.off()
 
 
-##### SD of unsustainable citation ratio across harvesting areas ####
+#### SD of unsustainable mention ratio across harvesting areas ####
 national_summary <- citations_by_species_massif %>%
   group_by(massif) %>%
   summarise(
-    Non_durable = sum(Non_durable),
-    total_citations = sum(total_citations),
-    ratio_unsustainable = 100 * Non_durable / total_citations,
+    ratio_unsustainable = 100 * sum(Non_durable) / sum(total_citations),
     .groups = "drop"
   )
 
-ratios <- national_summary$ratio_unsustainable
-n <- length(ratios)
-mean_ratio <- mean(ratios)
-sd_ratio <- sd(ratios)
-se <- sd_ratio / sqrt(n)
-ci_lower <- mean_ratio - 1.96 * se
-ci_upper <- mean_ratio + 1.96 * se
-
-mean_ratio
-ci_lower
-ci_upper
-
-
-##### Effect of departements on harvesting sustainablity ####
-
-# citations_by_species_dpt$response <- with(citations_by_species_dpt, cbind(`Non durable`, Durable))
-citations_by_species_dpt$ratio <- round(citations_by_species_dpt$`Non durable`/
-  citations_by_species_dpt$total_citations,2)
-
-
-# Step 1: Fit models for each species
-models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
-  df_sp <- filter(citations_by_species_dpt, nom == sp)
-  all_constant <- all(df_sp$`Non durable` == 0 | df_sp$Durable == 0)
-  
-  # Check why we would skip
-  if(length(unique(df_sp$dpt)) < 2) {
-    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "only 1 department"))
-  }
-  if(all_constant) {
-    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "constant response"))
-  }
-  
-  # Fit GLMM
-  model <- glmer(cbind(`Non durable`, Durable) ~ 1 + (1 | dpt),
-                 data = df_sp, family = binomial)
-  
-  # Check if model is singular
-  singular_flag <- isSingular(model)
-  
-  list(skipped = FALSE, model = model, singular = singular_flag, reason_skipped = NA)
-})
-names(models) <- unique(citations_by_species_dpt$nom)
-
-# Step 2: Build national-level summary
-summary_species <- data.frame(
-  nom = character(),
-  observed_ratio = numeric(),
-  pred_prob = numeric(),
-  pred_prob_logit = numeric(),
-  var_dpt = numeric(),
-  sd_dpt = numeric(),
-  skipped = logical(),
-  singular = logical(),
-  reason_skipped = character(),
-  stringsAsFactors = FALSE
-)
-
-for(sp in names(models)) {
-  df_sp <- filter(citations_by_species_dpt, nom == sp)
-  
-  # Observed ratio (national)
-  total_non <- sum(df_sp$`Non durable`)
-  total_all <- sum(df_sp$`Non durable` + df_sp$Durable)
-  obs_ratio <- ifelse(total_all > 0, total_non / total_all, NA)
-  
-  if(models[[sp]]$skipped) {
-    pred_prob <- NA
-    pred_prob_logit <- NA
-    var_dpt <- NA
-    sd_dpt <- NA
-    flagged <- TRUE
-    singular_flag <- NA
-    reason <- models[[sp]]$reason_skipped
-  } else {
-    model <- models[[sp]]$model
-    pred_prob <- plogis(fixef(model))              # national-level predicted probability
-    pred_prob_logit <- fixef(model)            # national-level predicted probability
-    var_dpt <- as.numeric(VarCorr(model)$dpt[1])  # random effect variance
-    sd_dpt <- sqrt(var_dpt)
-    flagged <- FALSE
-    singular_flag <- models[[sp]]$singular
-    reason <- NA
-  }
-  
-  summary_species <- rbind(summary_species,
-                           data.frame(
-                             nom = sp,
-                             observed_ratio = obs_ratio,
-                             pred_prob = pred_prob,
-                             pred_prob_logit = pred_prob_logit,
-                             sd_dpt = sd_dpt,
-                             skipped = flagged,
-                             singular = singular_flag,
-                             reason_skipped = reason,
-                             stringsAsFactors = FALSE
-                           ))
-}
-
-# Optional: sort by observed ratio
-summary_species <- summary_species %>% arrange(desc(observed_ratio))
-
-summary_species
-
-
-summary(models$`Allium ursinum`$model)
-
-
-
-
-
-##### Plot distribution of species rarity ####
-# Prepare datasets
-data_rarity_plot <- all_data %>% select(CD_REF, sp_area_FR) %>%
-  unique() %>%
-  mutate(in_survey="yes") %>%
-  full_join(all_rarity %>% select(CD_REF, sp_area_FR) %>%
-              unique() %>% mutate(in_survey ="no")) %>% # want to keep all species from all_rarity
-  na.omit()
-
-quantiles_all <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="no"], 
-                          probs = c(0.25, 0.5, 0.75))
-quantiles_survey <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="yes"], 
-                             probs = c(0.25, 0.5, 0.75))
-
-France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
-  summarise(total_area = sum(dpt_area)) %>% pull(total_area)
-
-
-
-ggplot(data_rarity_plot, aes(x = 100*sp_area_FR/France, fill = in_survey)) +
-  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
-  
-  geom_vline(xintercept = 100*quantiles_all/France,
-             linetype = "dashed", color = "blue", size = 1) +
-  geom_vline(xintercept = 100*quantiles_survey/France,
-             linetype = "dashed", color = "red", size = 1) +
-  
-  annotate("text",
-           x = 100*quantiles_all/France,
-           y = Inf,
-           label = paste0(names(quantiles_all),
-                          "% total flora"),
-           angle = 90,
-           vjust = -0.1,
-           hjust = 1,
-           color = "blue") +
-  
-  annotate("text",
-           x = 100*quantiles_survey/France,
-           y = Inf,
-           label = paste0(names(quantiles_survey),
-                          "% survey species"),
-           angle = 90,
-           vjust = -0.1,
-           hjust = 1,
-           color = "red") +
-  
-  scale_x_continuous(breaks = c(0, 5, 10, 20, 25, 50, 75, 100)) +
-  
-  scale_fill_manual(
-    name = "",
-    values = c("no" = "blue", "yes" = "red"),
-    labels = c("Total flora", "Species in survey")
-  ) +
-  
-  theme_minimal() +
-  labs(
-    x = "Species area in France (%)",
-    y = "Number of species"
-  )
-
-##### Plot rare species sustainability ####
-France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
-  summarise(total_area = sum(dpt_area)) %>% pull(total_area)
-
-plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
-                        filter(relative_sp_area_FR < 20 &
-                                 native=="native"), n = NULL,
-                      min_ratio=0.1, min_citations=2, max_citations=7)
-# max citations=7 because the 40 most cited species are cited minimum 8 times (Artemisia genipi)
-
-# plot_zoom_png?width=786&height=416
-png("plots/Figure_3_rare_species_20pct.png", 
-    width = 2358,
-    height = 1248,
-    res = 300)
-plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
-                        filter(relative_sp_area_FR < 20 &
-                                 native=="native"), n = NULL,
-                      min_ratio=0.1, min_citations=2, max_citations=7)
-dev.off()
-
-
-
-###_####
-#### Overview of harvesting issues in France ####
-# x axis = number of departements with a "non durable" answer / number of departements the species is cited in
-data_enjeux <- all_rarity %>%
-  inner_join(all_data %>% dplyr::select(-sp_relative_area, -dpt_area, -sp_area_FR), by="CD_REF") %>% # "inner" removes species without CD_REF !
-  dplyr::select(CD_REF, id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt,
-                dpt_name, dpt_simple, dpt_area, sp_relative_area, sp_area_FR) %>%
-  mutate(sp_relative_area = ifelse(is.na(sp_relative_area), 0, sp_relative_area)) %>%
-  unique() %>%
-  na.omit() %>%
-  mutate(n_answers = ifelse(ESPECE_dpt==dpt_simple, 1, 0)) %>%
-  pivot_wider(
-    names_from = ESPECE_durabilite,
-    values_from = n_answers,
-    names_prefix = "",
-    names_glue = "{.value}_{gsub(' ', '_', .name)}",
-    values_fill = 0
-  ) %>%
-  # Summarise data per département to get the total number of answers per département, and proportion of non durable answers
-  group_by(CD_REF, ESPECE_nom, dpt_name, sp_relative_area, sp_area_FR) %>%
-  summarise(across(c(n_answers_Non_durable, n_answers_Durable), sum),
-            .groups = "drop") %>%
-  mutate(total_answers_all = n_answers_Non_durable + n_answers_Durable,
-         proportion_non_durable = ifelse(n_answers_Non_durable==0, NA, 
-                                         100* n_answers_Non_durable/
-                                           total_answers_all),
-         proportion_non_durable = ifelse(n_answers_Non_durable==0 & 
-                                           n_answers_Durable>0, 0, 
-                                         proportion_non_durable)) %>%
-  # Join with the harvesting areas
-  full_join(massifs_simple, join_by("dpt_name"=="dpt")) %>%
-  # Summarise data per harvesting area to get the % of départements with a citation that have 1 "non durable" citations
-  group_by(CD_REF, ESPECE_nom, massif, sp_area_FR) %>%
-  summarise(
-    # Number of departments where the species has 1 non durable answer
-    nb_non_durable_dpt = sum(n_answers_Non_durable > 0),
-    # Number of non durable answers per harvesting area
-    nb_non_durable = sum(n_answers_Non_durable),
-    # Number of departments where the species has been cited in
-    nb_cited = sum(total_answers_all > 0),
-    # Number of departements where the species is present
-    n_present = sum(sp_relative_area > 20), #############################
-    # Number of departements where the species is present and has at least 1 answer
-    n_present_and_answer = sum(sp_relative_area > 0 &
-                                 total_answers_all > 0),
-    # Total number of answers per harvesting area
-    total_answers_all=sum(total_answers_all),
-    # Non durable answers ratio
-    non_durable_ratio1 = ifelse(total_answers_all > 0,
-                                100 * nb_non_durable
-                                / total_answers_all,
-                                NA),
-    # Number of departments where the species has 1 non durable answer
-    # divided by the number of departments where the species has been cited in
-    non_durable_ratio2 = ifelse(nb_cited > 0,
-                                100 * nb_non_durable_dpt
-                                / nb_cited,
-                                NA),
-    # Answer coverage ratio (Number of departments where the species is present and has at least one answer divided by the number of départements where the species is present)
-    answer_coverage = ifelse(n_present > 0,
-                             100 * n_present_and_answer /
-                               n_present,
-                             NA),
-    .groups = "drop"
-  ) %>%
-  # Round proportions
-  mutate(across(c(non_durable_ratio1, non_durable_ratio2, answer_coverage),
-                ~ round(.x, 1))) %>%
-  
-  # Add species presence statuses from the list of French vascular plants
-  left_join(vascular) 
-
-
-data_enjeux_general <- data_enjeux %>%
-  group_by(CD_REF, ESPECE_nom, sp_area_FR, native) %>%
-  summarise(
-    # % of harvesting areas that agree with the unsustainability score
-    agreement = sd(non_durable_ratio1, na.rm = TRUE),
-    agreement = ifelse(is.na(agreement), 0, agreement),
-    
-     # % of areas in which the species is cited as "non durable" on average 
-    # over the number of areas in which the species was cited
-    non_durable_ratio3 = ifelse(sum(total_answers_all > 0, na.rm = T) > 0,
-                                100 * sum(non_durable_ratio1 > 50, na.rm = T) 
-                                / sum(total_answers_all > 0, na.rm = T),
-                                NA),
-    # Average % of non durable answers / harvesting area
-    non_durable_ratio1 = ifelse(sum(total_answers_all > 0, na.rm = T) > 0,
-                                mean(non_durable_ratio1, na.rm = T),
-                                NA),
-    # Number of harvesting areas where the species has 1 non durable answer
-    # divided by the number of departments where the species has been cited in
-    non_durable_ratio2 = ifelse(sum(total_answers_all > 0, na.rm = T) > 0,
-                                100 * sum(non_durable_ratio2 > 0, na.rm = T) 
-                                / sum(total_answers_all > 0, na.rm = T),
-                                NA),
-    # Answer coverage ratio (number of harvesting areas where the species is present and has at least 1 answer, divided by the number of areas where the species is present in)
-    answer_coverage_harv_area = ifelse(sum(n_present > 0) > 0,
-                                       100 * sum(n_present > 0 &
-                                                   total_answers_all > 0) /
-                                         sum(n_present > 0),
-                                       NA),
-    # Answer coverage ratio (number of departements where the species is present and has at least 1 answer, divided by the number of areas where the species is present in))
-    answer_coverage_dpt = ifelse(sum(n_present > 0) > 0,
-                                 100* sum(n_present_and_answer) / sum(n_present),
-                                 NA),
-    
-    # Number of harvesting areas where the species is present
-    n_present = sum(n_present > 0),
-    
-    # Total number of all answers per species
-    total_answers_all = sum(total_answers_all),
-    .groups = "drop") %>%
-  # Round proportions
-  mutate(across(c(non_durable_ratio1, non_durable_ratio2, non_durable_ratio3,
-                  answer_coverage_harv_area, answer_coverage_dpt, agreement),
-                ~ round(.x, 1)))
-
-
-##### Plot number of citations against species area ####
-data_enjeux_general$non_durable_cat <- cut(
-  data_enjeux_general$non_durable_ratio2,
-  breaks = c(0, 25, 50, 75, 100),  # define 4 bins
-  labels = c("0-25", "25-50", "50-75", "75-100"),
-  include.lowest = TRUE
-)
-
-
-ggplot(data_enjeux_general,
-       aes(x = log10(sp_area_FR), y = total_answers_all)) +
-  geom_point(aes(size = agreement, colour = non_durable_cat),
-             alpha = 0.8) +
-  geom_vline(xintercept = log10(quantiles_all), linetype = "dashed", color = "red", size = 1) +
-  geom_vline(xintercept = log10(quantiles_survey), linetype = "dashed", color = "blue", size = 1) +
-  scale_colour_manual(
-    values = c("lightgreen", "gold", "orange", "darkred"),
-    name = "Non-sustainable ratio"
-  ) +
-  scale_size_continuous(
-    range = c(1, 10),       # min and max point sizes
-    name = "Disagreement (SD of non-sustainable ratio)"
-  ) +
-  geom_text_repel(
-    data = subset(data_enjeux_general, total_answers_all > 7),
-    aes(label = ESPECE_nom),
-    size = 3,
-    max.overlaps = 1000,      # ensure all labels are attempted
-    nudge_y = 1,            # move labels slightly up
-    nudge_x = 0.0,            # optional horizontal adjustment
-    segment.color = "grey50", # color of connecting line
-    segment.size = 0.5,       # line thickness
-    box.padding = 0.5,        # space around text to avoid overlapping
-    point.padding = 0.5,      # extra distance from point
-    force = 2,                # stronger repulsion to avoid overlap
-    direction = "both",       # labels can move vertically and horizontally
-    min.segment.length = 0    # draw line even if text is very close to point
-  ) +
-  theme_minimal()
-
-
-# questions: do i calculate sd among harvesting areas, or directly among dpts
-# is it worth increasing precision of species area calculation (taraxacum vs thymus for example)
-
-
-
-ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
-              & non_durable_ratio2>0), # non-native vs invasive ?
-       aes(x = 100*sp_area_FR/France, y = total_answers_all)) +
-  geom_point(aes(size = agreement, colour = non_durable_cat),
-             alpha = 0.8) +
-  geom_vline(xintercept = 100*quantiles_all/France, linetype = "dashed", color = "red", size = 1) +
-  geom_vline(xintercept = 100*quantiles_survey/France, linetype = "dashed", color = "blue", size = 1) +
-  scale_colour_manual(
-    values = c("lightgreen", "gold", "orange", "darkred"),
-    name = "Non-sustainable ratio"
-  ) +
-  scale_size_continuous(
-    range = c(1, 10),       # min and max point sizes
-    name = "Disagreement (SD of non-sustainable ratio)"
-  ) +
-  geom_text_repel(data=subset(data_enjeux_general, total_answers_all>1 & total_answers_all <= 7 & native=="native" 
-                              & non_durable_ratio2>0),
-                  aes(label = ESPECE_nom),
-                  size = 3,
-                  max.overlaps = 1000,      # ensure all labels are attempted
-                  nudge_y = 0.1,            # move labels slightly up
-                  nudge_x = 0.0,            # optional horizontal adjustment
-                  segment.color = "grey50", # color of connecting line
-                  segment.size = 0.5,       # line thickness
-                  box.padding = 0.5,        # space around text to avoid overlapping
-                  point.padding = 0.5,      # extra distance from point
-                  force = 2,                # stronger repulsion to avoid overlap
-                  direction = "both",       # labels can move vertically and horizontally
-                  min.segment.length = 0    # draw line even if text is very close to point
-  ) +
-  theme_minimal()
-
-
-
-
-# ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
-#               & non_durable_ratio1>0), # non-native vs invasive ?
-#        aes(x = log10(species_area_FR), y = non_durable_ratio2)) +
-#   geom_point(aes(size = agreement),
-#              alpha = 0.8) +
-#   scale_size_continuous(
-#     range = c(1, 10),       # min and max point sizes
-#     name = "Disagreement (SD of non-sustainable ratio)"
-#   ) +
-#   geom_text_repel(
-#     aes(label = ESPECE_nom),
-#     size = 3,
-#     max.overlaps = 1000,      # ensure all labels are attempted
-#     nudge_y = 1,            # move labels slightly up
-#     nudge_x = 0.0,            # optional horizontal adjustment
-#     segment.color = "grey50", # color of connecting line
-#     segment.size = 0.5,       # line thickness
-#     box.padding = 0.5,        # space around text to avoid overlapping
-#     point.padding = 0.5,      # extra distance from point
-#     force = 2,                # stronger repulsion to avoid overlap
-#     direction = "both",       # labels can move vertically and horizontally
-#     min.segment.length = 0    # draw line even if text is very close to point
-#   ) +
-#   theme_minimal()
-# 
-# 
-# ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native" 
-#               & non_durable_ratio1>0), # non-native vs invasive ?
-#        aes(x = agreement, y = total_answers_all)) +
-#   geom_point(aes(size = agreement, colour = non_durable_cat),
-#              alpha = 0.8) +
-#   scale_colour_manual(
-#     values = c("lightgreen", "gold", "orange", "darkred"),
-#     name = "Non-sustainable ratio"
-#   ) +
-#   geom_text_repel(
-#     aes(label = ESPECE_nom),
-#     size = 3,
-#     max.overlaps = 1000,      # ensure all labels are attempted
-#     nudge_y = 1,            # move labels slightly up
-#     nudge_x = 0.0,            # optional horizontal adjustment
-#     segment.color = "grey50", # color of connecting line
-#     segment.size = 0.5,       # line thickness
-#     box.padding = 0.5,        # space around text to avoid overlapping
-#     point.padding = 0.5,      # extra distance from point
-#     force = 2,                # stronger repulsion to avoid overlap
-#     direction = "both",       # labels can move vertically and horizontally
-#     min.segment.length = 0    # draw line even if text is very close to point
-#   ) +
-#   theme_minimal()
-
-
-
+with(national_summary, {
+  m <- mean(ratio_unsustainable)
+  se <- sd(ratio_unsustainable) / sqrt(length(ratio_unsustainable))
+  c(mean = m, ci_lower = m - 1.96 * se, ci_upper = m + 1.96 * se)})
+# mean ci_lower ci_upper 
+# 30.72300 25.75785 35.68815 
 
 
 
 ####_________####
-#### Figure 4 - Are the assumptions of the respondents concerning species regulations correct ? #####
+#### Figure 5 - Are the assumptions of the respondents concerning species regulations correct ? #####
 BDC_STATUTS_17 <- read_csv("raw_data/BDC-Statuts-v17/BDC_STATUTS_17.csv") %>%
   # filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL", "REGLSO")) %>% 
   filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL")) %>% 
@@ -2308,14 +2278,14 @@ data_regl_prot_join <- rbind(bdc_dpt, bdc_region) %>%
 
 
 data_regl_prot_summar <- data_regl_prot_join %>%
-  # # Calcul du pourcentage par ESPECE_espece_reglem et statut_group
+  # Calculate % by ESPECE_espece_reglem nad statut_group
   group_by(ESPECE_espece_reglem, statut_group) %>%
   summarise(n = n(), .groups = 'drop') %>%
   group_by(ESPECE_espece_reglem) %>%
   mutate(pct = n / sum(n) * 100)
 
 data_regl_prot_summar2 <- data_regl_prot_join %>%
-  # # Calcul du pourcentage de chaque réponse
+  # Calculate % of each answer
   group_by(ESPECE_espece_reglem) %>%
   summarise(n = n(), .groups = 'drop') %>%
   mutate(pct = n / sum(n) * 100)
@@ -2454,6 +2424,16 @@ glm_fit <- glm(reponse_correcte ~ Cluster,
                data = data_regl_eval,
                family = binomial(link="logit"))
 summary(glm_fit)
+
+# Odds ratios and contributions
+summary(glm_fit)$coefficients %>%
+  as.data.frame() %>%
+  mutate(
+    Odds_Ratio = exp(Estimate),
+    CI_low = exp(Estimate - 1.96 * `Std. Error`),
+    CI_high = exp(Estimate + 1.96 * `Std. Error`)
+  ) %>%
+  print()
 
 
 #### % of unsustainable species that are regulated/unregulated ####
