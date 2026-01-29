@@ -879,6 +879,20 @@ percent_unsustainable # 36% of the species were, on average, perceived as being 
 
 ####_________####
 #### Figure 2 - Rare species sustainability issues #####
+citations_by_species_dpt <- df_all_species_data %>%
+  dplyr::select(id, nom, durabilite, dpt) %>% 
+  filter(!is.na(dpt) & dpt != "") %>%
+  unique() %>%
+  filter(!is.na(dpt) & dpt != "") %>%
+  group_by(dpt, nom, durabilite) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = durabilite,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(total_citations = Durable + `Non durable`)
+
 #### Effect of departements on harvesting sustainablity ####
 
 # citations_by_species_dpt$response <- with(citations_by_species_dpt, cbind(`Non durable`, Durable))
@@ -916,13 +930,14 @@ summary_species <- data.frame(
   observed_ratio = numeric(),
   pred_prob = numeric(),
   pred_prob_logit = numeric(),
-  var_dpt = numeric(),
   sd_dpt = numeric(),
+  MOR_dpt = numeric(), # median odds ratio
   skipped = logical(),
   singular = logical(),
   reason_skipped = character(),
   stringsAsFactors = FALSE
 )
+
 
 for(sp in names(models)) {
   df_sp <- filter(citations_by_species_dpt, nom == sp)
@@ -937,6 +952,7 @@ for(sp in names(models)) {
     pred_prob_logit <- NA
     var_dpt <- NA
     sd_dpt <- NA
+    MOR_dpt <- NA
     flagged <- TRUE
     singular_flag <- NA
     reason <- models[[sp]]$reason_skipped
@@ -946,6 +962,7 @@ for(sp in names(models)) {
     pred_prob_logit <- fixef(model)            # national-level predicted probability
     var_dpt <- as.numeric(VarCorr(model)$dpt[1])  # random effect variance
     sd_dpt <- sqrt(var_dpt)
+    MOR_dpt <- exp(sqrt(2 * var_dpt) * 0.6745)
     flagged <- FALSE
     singular_flag <- models[[sp]]$singular
     reason <- NA
@@ -958,6 +975,7 @@ for(sp in names(models)) {
                              pred_prob = pred_prob,
                              pred_prob_logit = pred_prob_logit,
                              sd_dpt = sd_dpt,
+                             MOR_dpt = MOR_dpt,
                              skipped = flagged,
                              singular = singular_flag,
                              reason_skipped = reason,
@@ -965,17 +983,8 @@ for(sp in names(models)) {
                            ))
 }
 
-# Optional: sort by observed ratio
-summary_species <- summary_species %>% arrange(desc(observed_ratio))
-
+# summary(models$`Allium ursinum`$model)
 summary_species
-
-
-summary(models$`Allium ursinum`$model)
-
-
-
-
 
 #### Plot distribution of species rarity ####
 # Prepare datasets
@@ -1045,7 +1054,7 @@ France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_are
 plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
                         filter(relative_sp_area_FR < 20 &
                                  native=="native"), n = NULL,
-                      min_ratio=0.1, min_citations=2, max_citations=7)
+                      min_ratio=0, min_citations=2, max_citations=7) # there are no species under 50% unsustainable ratio !
 # max citations=7 because the 20 most cited species are cited minimum 8 times (Artemisia genipi)
 
 # plot_zoom_png?width=786&height=416
@@ -1938,21 +1947,6 @@ cat("Classification accuracy:", round(conf_mat$overall['Accuracy'] * 100, 1), "%
 #### Figure 4 - Spatial distribution of ‘unsustainable’ mentions ####
 #### Plot species maps per département ####
 # Data is already processed in `df_all_species_data`, now join with `departements`
-citations_by_species_dpt <- df_all_species_data %>%
-  dplyr::select(id, nom, durabilite, dpt) %>% 
-  filter(!is.na(dpt) & dpt != "") %>%
-  unique() %>%
-  filter(!is.na(dpt) & dpt != "") %>%
-  group_by(dpt, nom, durabilite) %>%
-  summarise(n = n(), .groups = "drop") %>%
-  pivot_wider(
-    names_from = durabilite,
-    values_from = n,
-    values_fill = 0
-  ) %>%
-  mutate(total_citations = Durable + `Non durable`)
-
-
 citations_by_species_massif <- citations_by_species_dpt %>%
   right_join(departements_simpl_PARIS, join_by("dpt"=="dpt_simple")) %>%
   group_by(nom, massif) %>%
