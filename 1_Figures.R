@@ -900,7 +900,7 @@ citations_by_species_dpt$ratio <- round(citations_by_species_dpt$`Non durable`/
                                           citations_by_species_dpt$total_citations,2)
 
 
-# Step 1: Fit models for each species
+# Fit models for each species
 models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
   df_sp <- filter(citations_by_species_dpt, nom == sp)
   all_constant <- all(df_sp$`Non durable` == 0 | df_sp$Durable == 0)
@@ -924,20 +924,21 @@ models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
 })
 names(models) <- unique(citations_by_species_dpt$nom)
 
-# Step 2: Build national-level summary
+# Build national-level summary
 summary_species <- data.frame(
   nom = character(),
   observed_ratio = numeric(),
   pred_prob = numeric(),
   pred_prob_logit = numeric(),
   sd_dpt = numeric(),
-  MOR_dpt = numeric(), # median odds ratio
+  MOR_dpt = numeric(),    # median odds ratio
+  CI_lower = numeric(),   # IC 95% basé sur SD du random effect
+  CI_upper = numeric(),
   skipped = logical(),
   singular = logical(),
   reason_skipped = character(),
   stringsAsFactors = FALSE
 )
-
 
 for(sp in names(models)) {
   df_sp <- filter(citations_by_species_dpt, nom == sp)
@@ -950,19 +951,31 @@ for(sp in names(models)) {
   if(models[[sp]]$skipped) {
     pred_prob <- NA
     pred_prob_logit <- NA
-    var_dpt <- NA
     sd_dpt <- NA
     MOR_dpt <- NA
+    CI_lower <- NA
+    CI_upper <- NA
     flagged <- TRUE
     singular_flag <- NA
     reason <- models[[sp]]$reason_skipped
   } else {
     model <- models[[sp]]$model
-    pred_prob <- plogis(fixef(model))              # national-level predicted probability
-    pred_prob_logit <- fixef(model)            # national-level predicted probability
-    var_dpt <- as.numeric(VarCorr(model)$dpt[1])  # random effect variance
+    
+    # Probabilité nationale
+    pred_prob_logit <- fixef(model)        # logit
+    pred_prob <- plogis(pred_prob_logit)   # inverse logit
+    
+    # Variabilité départementale
+    var_dpt <- as.numeric(VarCorr(model)$dpt[1])
     sd_dpt <- sqrt(var_dpt)
+    
+    # MOR
     MOR_dpt <- exp(sqrt(2 * var_dpt) * 0.6745)
+    
+    # IC 95 % basé sur SD des départements
+    CI_lower <- plogis(pred_prob_logit - 1.96 * sd_dpt)
+    CI_upper <- plogis(pred_prob_logit + 1.96 * sd_dpt)
+    
     flagged <- FALSE
     singular_flag <- models[[sp]]$singular
     reason <- NA
@@ -976,6 +989,8 @@ for(sp in names(models)) {
                              pred_prob_logit = pred_prob_logit,
                              sd_dpt = sd_dpt,
                              MOR_dpt = MOR_dpt,
+                             CI_lower = CI_lower,
+                             CI_upper = CI_upper,
                              skipped = flagged,
                              singular = singular_flag,
                              reason_skipped = reason,
@@ -983,8 +998,9 @@ for(sp in names(models)) {
                            ))
 }
 
-# summary(models$`Allium ursinum`$model)
 summary_species
+# summary(models$`Allium ursinum`$model)
+
 
 #### Plot distribution of species rarity ####
 # Prepare datasets
@@ -1356,11 +1372,13 @@ res.hcpc.particip <- HCPC(res.mca.particip, nb.clust = -1, graph = FALSE)
 print(res.hcpc.particip$desc.var)
 
 # Recode cluster numbers
-res.hcpc.particip$data.clustclust <- recode(res.hcpc.particip$data.clust$clust,
-                                           `1` = 3,
-                                           `2` = 2,
-                                           `3` = 1) %>%
-  as.factor()
+res.hcpc.particip$data.clust$clust <- recode(res.hcpc.particip$data.clust$clust,
+                                           `1` = "Non_harvesters",
+                                           `2` = "Amateur_harvesters",
+                                           `3` = "Pro_harvesters") %>%
+  factor(levels = c("Pro_harvesters",
+                    "Amateur_harvesters",
+                    "Non_harvesters"))
 
 
 ##### Plot clusters ###
@@ -1368,7 +1386,7 @@ plot_data_particip <- data.frame(
   row_name = rownames(res.mca.particip$ind$coord),
   Dim.1 = res.mca.particip$ind$coord[,1],
   Dim.2 = res.mca.particip$ind$coord[,2],
-  Cluster = as.factor(res.hcpc.particip$data.clust$clust)
+  Cluster = res.hcpc.particip$data.clust$clust
 )
 
 plot_MCA_particip <- ggplot(plot_data_particip, aes(Dim.1, Dim.2, color = Cluster)) +
@@ -1439,15 +1457,15 @@ dist_matrix <- dist(res.mca.particip$ind$coord)
 
 # Get the cluster assignments from the HCPC result
 # Convert the cluster factor to a numeric vector for compatibility
-cluster_assignments_numeric <- as.numeric(as.character(res.hcpc.particip$data.clust$clust))
+cluster_assignments_numeric <- recode(res.hcpc.particip$data.clust$clust,
+                                             "Non_harvesters" = 3,
+                                             "Amateur_harvesters" = 2,
+                                             "Pro_harvesters" = 1) %>%
+  as.character() %>% as.numeric()
 
 # Compute the silhouette values with the numeric cluster assignments
 sil_result <- silhouette(cluster_assignments_numeric, dist_matrix)
-
-# Print a summary of the silhouette results
 summary(sil_result)
-
-# Plot the silhouette
 plot(sil_result)
 
 
@@ -1468,7 +1486,7 @@ d <- all_data_profile_clusters %>%
 
 names(d) <- c("id", "species", "harvest_area", "sustainability", "respondent_profile")
 
-d$sustainability <- ifelse(d$sustainability == "Durable", 1, 0)
+d$sustainability <- ifelse(d$sustainability == "Durable", 0, 1)
 
 model1 <- glmer(sustainability ~ respondent_profile + (1|species),
                 data = d, family = binomial)
@@ -1484,8 +1502,8 @@ summary(model1)$coefficients %>%
   ) %>%
   print()
 
-# Count number of respondents per species and profile
-table(d$species, d$respondent_profile)
+
+# table(d$species, d$respondent_profile)
 
 
 ##### Unsustainable known VS respondent profile ####
@@ -1524,7 +1542,7 @@ d2$respondent_profile <- as.factor(d2$respondent_profile)
 
 model3 <- glm(unsustainable_species_known ~ respondent_profile,
               data = d2, family = binomial)
-summary(model3) # Profile 3 bordeline significant
+summary(model3)
 
 
 
@@ -1748,23 +1766,26 @@ rstatix::dunn_test(sp_relative_area ~ ESPECE_presence, p.adjust.method = "bonfer
 ##### Estimates and CI ###
 # compute bootstrapped CI for each group
 set.seed(123)  # for reproducibility
+boot_median <- function(data, indices) {
+  median(data[indices], na.rm = TRUE)
+}
+
+median_ci <- function(x, R = 2000) {
+  b <- boot(x, statistic = boot_median, R = R)
+  ci <- boot.ci(b, type = "perc")$percent[c(4, 5)]
+  
+  tibble(
+    median = median(x, na.rm = TRUE),
+    CI_low = ci[1],
+    CI_high = ci[2] )}
+
 rarity %>%
   group_by(ESPECE_presence) %>%
   summarise(
-    n = n(),
-    median = median(sp_relative_area, na.rm = TRUE),
-    CI_low = {
-      b <- boot(sp_relative_area, 
-                function(data, indices) { # function to bootstrap the median
-        median(data[indices], na.rm = TRUE)
-      }, R = 2000)
-      boot.ci(b, type = "perc")$percent[4]
-    },
-    CI_high = {
-      b <- boot(sp_relative_area, boot_median, R = 2000)
-      boot.ci(b, type = "perc")$percent[5]
-    }
-  )
+    n = sum(!is.na(sp_relative_area)),
+    median_ci(sp_relative_area),
+    .groups = "drop")
+
 
 ##### Plot ###
 ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
@@ -1775,7 +1796,7 @@ ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
     labels = c("Durable" = "Sustainable", "Non durable" = "Unsustainable")
   ) + 
   stat_pvalue_manual(
-    dunn_result,
+    rstatix::dunn_test(sp_relative_area ~ ESPECE_presence, p.adjust.method = "bonferroni", data=rarity),
     label = "p.adj.signif",
     y.position = 110, # adjust depending on your data range
     hide.ns = TRUE,
@@ -1889,7 +1910,7 @@ data_dfa_durabilite_sp_bio <- all_data %>%
                                    "Sustainable" = "Durable",
                                    "Non sustainable" = "Non durable"),
     # Now explicitly set reference level:
-    ESPECE_durabilite = relevel(ESPECE_durabilite, ref = "Non sustainable"),
+    ESPECE_durabilite = relevel(ESPECE_durabilite, ref = "Non sustainable"), # !! the model is predicting the log-odds of being Sustainable
     across(-c(C, S, R, sp_relative_area), as.factor)
   )
 
@@ -1928,17 +1949,18 @@ opt_coords <- coords(
   ret = c("threshold", "sensitivity", "specificity")
 )
 opt_coords
-print(as.numeric(opt_coords["threshold"]))
+opt_coords["threshold"]
 
 # Evaluate model performance using optimal threshold
 # Use the same factor levels and order as the actual data
-pred_class <- ifelse(pred_probs > opt_thresh, "Sustainable","Non sustainable")
+pred_class <- ifelse(pred_probs > as.numeric(opt_coords["threshold"]), "Sustainable","Non sustainable")
 pred_class <- factor(pred_class, levels = levels(data_dfa_durabilite_sp_bio$ESPECE_durabilite))
-cconfusionMatrix(pred_class, data_dfa_durabilite_sp_bio$ESPECE_durabilite)
-print(conf_mat)
+confusionMatrix(pred_class, data_dfa_durabilite_sp_bio$ESPECE_durabilite)
 
 # Extract and print accuracy directly.
-cat("Classification accuracy:", round(conf_mat$overall['Accuracy'] * 100, 1), "%\n")
+cat("Classification accuracy:", 
+    round(confusionMatrix(pred_class, 
+                          data_dfa_durabilite_sp_bio$ESPECE_durabilite)$overall['Accuracy'] * 100, 1), "%\n")
 
 
 
@@ -2092,6 +2114,16 @@ plot_species_map_massif <- function(species_name) {
 species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Filipendula ulmaria") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_dpt 
 
+species_maps_dpt2 <-   plot_species_map_dpt("Filipendula ulmaria") + 
+  plot_species_map_dpt("Artemisia umbelliformis") + 
+  plot_species_map_dpt("Arnica montana") + 
+  plot_species_map_dpt("Allium ursinum") + 
+  plot_species_map_dpt("Vaccinium myrtillus") +  
+  plot_species_map_dpt("Hypericum nummularium") + 
+  plot_annotation(tag_levels = "a") + 
+  plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
+species_maps_dpt2
+
 # plot_zoom_png?width=905&height=697
 png("plots/Figure_3_species_maps_dpt.png", 
     width = 2715,
@@ -2100,6 +2132,13 @@ png("plots/Figure_3_species_maps_dpt.png",
 species_maps_dpt
 dev.off()
 
+# plot_zoom_png?width=1333&height=844
+png("plots/Figure_3_species_maps_dpt2.png", 
+    width = 3999,
+    height = 2532,
+    res = 300)
+species_maps_dpt2
+dev.off()
 
 species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Filipendula ulmaria") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_massif
@@ -2414,7 +2453,7 @@ data_regl_eval <- data_regl_eval %>%
 
 data_regl_eval$reponse_correcte <- ifelse(data_regl_eval$reponse_correcte == "Correct", 1, 0)
 
-glm_fit <- glm(reponse_correcte ~ Cluster,
+glm_fit <- glmer(reponse_correcte ~ Cluster +(1|ESPECE_nom),
                data = data_regl_eval,
                family = binomial(link="logit"))
 summary(glm_fit)
