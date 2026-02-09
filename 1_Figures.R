@@ -32,8 +32,24 @@ library(plotly)
 
 #### Import data ####
 raw_data <- read.csv("raw_data/results-survey676868_prefilter.csv")
+raw_data_all <- read.csv("raw_data/results-survey676868.csv")
 
 massifs <- read.csv("raw_data/massifs_cueillette.csv")
+
+massifs$massif <- factor(
+  massifs$massif,
+  levels = c(
+    "Alpes", "Pyrénées", "Jura-Alpes Nord", "Massif Central",
+    "Méditerranée", "Massif Corse",
+    "Bassin Parisien Nord", "Bassin Parisien Sud", "Nord-Est", "Massif Armoricain", "Sud-Ouest"
+  ),
+  labels = c(
+    "Alps", "Pyrenees", "Jura-Northern Alps", "Central Massif",
+    "Mediterranean", "Corsica",
+    "Northern Paris Basin", "Southern Paris Basin", "North-East", "Armorican Massif", "South-West"
+  )
+)
+
 massifs_simple <- read.csv("raw_data/massifs_cueillette_simple.csv")
 
 departements <- read_sf("raw_data/shape/departements_detail_paris.shp") %>%
@@ -93,10 +109,72 @@ vascular <- read.csv("raw_data/list_vascular_v17.csv") %>%
 # M - Historically introduced: Long-established non-native species
 # J - Introduced & invasive: Non-native species with invasive behavior 
 
+####_________####
+#### APPENDIX B - Temporal dynamic of answers ####
+raw_data_all$`datestamp..Date.de.la.dernière.action` <- as.POSIXct(
+  raw_data_all$`datestamp..Date.de.la.dernière.action`,
+  format = "%Y-%m-%d %H:%M:%S",   # adjust if needed
+  tz = "Europe/Paris"
+)
+
+# Make sure months are displayed in English
+Sys.setlocale("LC_TIME", "C")  # 'C' forces English month names
+
+# Prepare daily cumulative data
+df_daily <- raw_data_all %>%
+  mutate(day = as.Date(`datestamp..Date.de.la.dernière.action`)) %>%
+  count(day) %>%
+  arrange(day) %>%
+  mutate(cum_n = cumsum(n))
+
+# Axis limits
+min_day <- min(df_daily$day, na.rm = TRUE)
+max_day <- as.Date("2025-04-30")  # adjust as needed to show relevant dates
+
+# Relaunch dates
+relaunch1 <- as.Date("2024-11-15")
+relaunch2 <- as.Date("2025-02-07")
+
+# Plot
+temp_dynamic <- ggplot(df_daily, aes(x = day, y = cum_n)) +
+  geom_step(linewidth = 0.8) +
+  
+  # Relaunch vertical lines
+  geom_vline(xintercept = relaunch1, linetype = "dashed", color = "red") +
+  geom_vline(xintercept = relaunch2, linetype = "dashed", color = "red") +
+  
+  # Relaunch labels above curve
+  annotate("text", x = relaunch1, y = 2400,
+           label = "Relaunch 1", angle = 90, vjust = -0.5, size = 3, colour = "red") +
+  annotate("text", x = relaunch2, y = 2400,
+           label = "Relaunch 2", angle = 90, vjust = -0.5, size = 3, colour = "red") +
+  
+  scale_x_date(
+    limits = c(min_day, max_day),
+    date_breaks = "1 month",
+    date_labels = "%b %Y",  # %b gives abbreviated month in English
+    expand = c(0, 0)) +
+  
+  labs(
+    x = "",
+    y = "Cumulative number of survey starts") +
+  
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1))
+temp_dynamic
+
+# plot_zoom_png?width=702&height=478
+png("plots/AppendixB_temporal_dynamic_survey.png", 
+    width = 2106,
+    height = 1434,
+    res = 300)
+temp_dynamic
+dev.off()
+
 
 ####_________####
-
-#### Visualise harvesting areas ####
+#### APPENDIX D - Harvesting areas ####
 departements_simpl_PARIS <- departements %>%
   # Create a grouping variable: "IDF" for Ile-de-France, and the original "code" for others
   mutate(group = if_else(region == "Ile-de-France", "IDF", code)) %>%
@@ -120,42 +198,50 @@ departements_simpl_PARIS <- departements %>%
   dplyr::select(-group)
 
 
-plot_massifs <- ggplot() +
-  geom_sf(data = departements_simpl_PARIS, 
-          aes(fill=massif), colour="white")+
-  ggtitle(label="Massifs de cueillette") +
-  scale_fill_manual(values=
-                      # c("#004949","#009292","#490092",
-                      # "#ff6db6","#006ddb","#b66dff","#6db6ff","#b6dbff",
-                      # "#920000","#db6d00","#ffff6d")
-                      c(
-                        "#003f5c",  # deep midnight blue
-                        "#2f4b7c",  # muted violet
-                        "#665191",  # slate purple
-                        "#a05195",  # mauve‑magenta
-                        "#d45087",  # rose‑dust
-                        "#f95d6a",  # coral
-                        "#ff7c43",  # burnt orange
-                        "#ffa600",  # warm gold
-                        "#7ac667",  # soft green
-                        "#4ac3a7",  # teal‑cyan
-                        "#00bfae"),   # bright teal)
+# Define color palettes for harvesting areas
+colors_montagne <- c("#4d004b", "#810f7c", "#88419d", "#8c6bb1")   # Mountain areas
+colors_med_corse <- c("#FD8D3C", "#fdd0a2")                         # Mediterranean & Corsica
+colors_plaine   <- c("#023858", "#045a8d", "#0570b0", "#3690c0", "#74a9cf") # Lowland areas
+
+
+harvesting_area_levels <- c(
+  "Alps", "Pyrenees", "Jura-Northern Alps", "Central Massif",
+  "Mediterranean", "Corsica",
+  "Northern Paris Basin", "Southern Paris Basin", "North-East", "Armorican Massif", "South-West"
+)
+
+massif_colors <- c(colors_montagne, colors_med_corse, colors_plaine)
+names(massif_colors) <- harvesting_area_levels
+
+plot_harvest_areas <- ggplot() +
+  geom_sf(data = departements_simpl_PARIS, aes(fill = massif), colour = "white", alpha = 0.8) +
+  geom_sf(data = harvesting_area_boundaries, fill = NA, colour = "black", size = 1) +
+  geom_label(data = centroids, aes(label = letter, geometry = geometry),
+             stat = "sf_coordinates", size = 4, fontface = "bold", color = "black",
+             fill = "white", label.size = 0.3) +
+  scale_fill_manual(
+    name = "Harvesting areas",
+    values = massif_colors,
+    breaks = harvesting_area_levels,
+    labels = paste0(harvesting_area_letters, ". ", harvesting_area_levels)
   ) +
-  theme(axis.text.x=element_blank(),
-        axis.ticks.x=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank(),
-        panel.background = element_blank())
+  labs(x = NULL, y = NULL) +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+plot_harvest_areas
 
-plot_massifs
 
-
-# plot_zoom_png?width=777&height=640
-png("plots/massifs_cueillette.png", 
-    width = 2331,     # pixels
-    height = 1920,   # pixels
+# plot_zoom_png?width=865&height=615
+png("plots/AppendixD_harvest_areas.png", 
+    width = 2595,     # pixels
+    height = 1845,   # pixels
     res = 300)        # resolution in dpi
-plot_massifs
+plot_harvest_areas
 dev.off()
 
 
@@ -642,7 +728,7 @@ ggplot(rattach_gp_cueill, aes(x=PROFIL_nom_orga_rattach)) +
 
 
 ####_________####
-#### APPENDIX - Bar Plot of all cited species (only >1 citation) ####
+#### APPENDIX E - Bar Plot of all cited species (only >1 citation) ####
 df_species <- all_data %>%
   dplyr::select(id, ESPECE_nom) %>%
   na.omit() %>%
@@ -658,29 +744,24 @@ top10_species <- df_species %>%
 # Plot
 all_cited <- ggplot(df_species, aes(x = fct_reorder(ESPECE_nom, -citations), y = citations)) +
   geom_col() +
-  scale_x_discrete(labels = function(x) ifelse(x %in% top10_species, x, "")) +
+  # scale_x_discrete(labels = function(x) ifelse(x %in% top10_species, x, "")) +
   labs(
-    title = "Amount of citations per species",
-    subtitle = paste("Showing only species cited more than once (", nrow(df_species), " of 146 species )"),
     x = "",
-    y = "Citation count"
-  ) +
+    y = "Number of mentions") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  theme(axis.text.x = element_text(angle = 70, face="italic", hjust = 1))
 all_cited
 
-# 172 different cited species
-
-# plot_zoom_png?width=967&height=661
-png("plots/all_cited.png", 
-    width = 2901,     # pixels
-    height = 1983,   # pixels
+# plot_zoom_png?width=1000&height=611
+png("plots/AppendixE_all_cited.png", 
+    width = 2000,     # pixels
+    height = 1222,   # pixels
     res = 300)        # resolution in dpi
 all_cited
 dev.off()
 
 
-#### APPENDIX - Cumulative frequency plot of species ####
+#### APPENDIX ? - Cumulative frequency plot of species ####
 plot_cumulative_species <- function(data) {
   
   # Count citations per species
@@ -783,9 +864,9 @@ plot_durability_ratio <- function(data, n = NULL,
   # Summarise counts + ratio
   df_summary <- data %>%
     filter(ESPECE_nom %in% top_species) %>%
-    distinct(id, ESPECE_nom, ESPECE_durabilite) %>%
-    count(ESPECE_nom, ESPECE_durabilite) %>%
-    group_by(ESPECE_nom) %>%
+    distinct(id, ESPECE_nom, choix_type_bio, ESPECE_durabilite) %>%
+    count(ESPECE_nom, choix_type_bio, ESPECE_durabilite) %>%
+    group_by(ESPECE_nom, choix_type_bio) %>%
     mutate(
       total_citations = sum(n),
       ratio_non_durable = sum(n[ESPECE_durabilite == "Non durable"], na.rm = TRUE) / sum(n)
@@ -819,7 +900,8 @@ plot_durability_ratio <- function(data, n = NULL,
   ggplot(df_summary, aes(x = ratio_non_durable, y = ESPECE_nom, size = total_citations)) +
     # Add vertical line at 50%
     geom_vline(xintercept = 0.5, color = "grey70", linewidth = .3, linetype = "solid") +
-    geom_point(color = "grey10") +
+    # geom_point(color = "grey10") +
+    geom_point(aes(color = choix_type_bio)) +
     scale_x_continuous(
       labels = scales::percent_format(accuracy = 1),
       limits = c(0, 1)  # 0% to 100%
@@ -892,114 +974,6 @@ citations_by_species_dpt <- df_all_species_data %>%
     values_fill = 0
   ) %>%
   mutate(total_citations = Durable + `Non durable`)
-
-#### Effect of departements on harvesting sustainablity ####
-
-# citations_by_species_dpt$response <- with(citations_by_species_dpt, cbind(`Non durable`, Durable))
-citations_by_species_dpt$ratio <- round(citations_by_species_dpt$`Non durable`/
-                                          citations_by_species_dpt$total_citations,2)
-
-
-# Fit models for each species
-models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
-  df_sp <- filter(citations_by_species_dpt, nom == sp)
-  all_constant <- all(df_sp$`Non durable` == 0 | df_sp$Durable == 0)
-  
-  # Check why we would skip
-  if(length(unique(df_sp$dpt)) < 2) {
-    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "only 1 department"))
-  }
-  if(all_constant) {
-    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "constant response"))
-  }
-  
-  # Fit GLMM
-  model <- glmer(cbind(`Non durable`, Durable) ~ 1 + (1 | dpt),
-                 data = df_sp, family = binomial)
-  
-  # Check if model is singular
-  singular_flag <- isSingular(model)
-  
-  list(skipped = FALSE, model = model, singular = singular_flag, reason_skipped = NA)
-})
-names(models) <- unique(citations_by_species_dpt$nom)
-
-# Build national-level summary
-summary_species <- data.frame(
-  nom = character(),
-  observed_ratio = numeric(),
-  pred_prob = numeric(),
-  pred_prob_logit = numeric(),
-  sd_dpt = numeric(),
-  MOR_dpt = numeric(),    # median odds ratio
-  CI_lower = numeric(),   # IC 95% basé sur SD du random effect
-  CI_upper = numeric(),
-  skipped = logical(),
-  singular = logical(),
-  reason_skipped = character(),
-  stringsAsFactors = FALSE
-)
-
-for(sp in names(models)) {
-  df_sp <- filter(citations_by_species_dpt, nom == sp)
-  
-  # Observed ratio (national)
-  total_non <- sum(df_sp$`Non durable`)
-  total_all <- sum(df_sp$`Non durable` + df_sp$Durable)
-  obs_ratio <- ifelse(total_all > 0, total_non / total_all, NA)
-  
-  if(models[[sp]]$skipped) {
-    pred_prob <- NA
-    pred_prob_logit <- NA
-    sd_dpt <- NA
-    MOR_dpt <- NA
-    CI_lower <- NA
-    CI_upper <- NA
-    flagged <- TRUE
-    singular_flag <- NA
-    reason <- models[[sp]]$reason_skipped
-  } else {
-    model <- models[[sp]]$model
-    
-    # Probabilité nationale
-    pred_prob_logit <- fixef(model)        # logit
-    pred_prob <- plogis(pred_prob_logit)   # inverse logit
-    
-    # Variabilité départementale
-    var_dpt <- as.numeric(VarCorr(model)$dpt[1])
-    sd_dpt <- sqrt(var_dpt)
-    
-    # MOR
-    MOR_dpt <- exp(sqrt(2 * var_dpt) * 0.6745)
-    
-    # IC 95 % basé sur SD des départements
-    CI_lower <- plogis(pred_prob_logit - 1.96 * sd_dpt)
-    CI_upper <- plogis(pred_prob_logit + 1.96 * sd_dpt)
-    
-    flagged <- FALSE
-    singular_flag <- models[[sp]]$singular
-    reason <- NA
-  }
-  
-  summary_species <- rbind(summary_species,
-                           data.frame(
-                             nom = sp,
-                             observed_ratio = obs_ratio,
-                             pred_prob = pred_prob,
-                             pred_prob_logit = pred_prob_logit,
-                             sd_dpt = sd_dpt,
-                             MOR_dpt = MOR_dpt,
-                             CI_lower = CI_lower,
-                             CI_upper = CI_upper,
-                             skipped = flagged,
-                             singular = singular_flag,
-                             reason_skipped = reason,
-                             stringsAsFactors = FALSE
-                           ))
-}
-
-summary_species
-# summary(models$`Allium ursinum`$model)
 
 
 #### Plot distribution of species rarity ####
@@ -1339,7 +1313,7 @@ ggplot(subset(data_enjeux_general, total_answers_all <= 7 & native=="native"
 
 
 ####_________####
-#### Identifying distinct respondent profiles ####
+#### APPENDIX F - Identifying distinct respondent profiles ####
 ##### Prepare data ###
 all_data_ACM_participant_profile <- all_data %>%
   dplyr::select(id, PROFIL_statut_cueilleur, PROFIL_type_orga_rattach,
@@ -1373,12 +1347,12 @@ print(res.hcpc.particip$desc.var)
 
 # Recode cluster numbers
 res.hcpc.particip$data.clust$clust <- recode(res.hcpc.particip$data.clust$clust,
-                                           `1` = "Non_harvesters",
+                                           `1` = "Non-harvesting_professionals",
                                            `2` = "Amateur_harvesters",
-                                           `3` = "Pro_harvesters") %>%
-  factor(levels = c("Pro_harvesters",
+                                           `3` = "Professional_harvesters") %>%
+  factor(levels = c("Professional_harvesters",
                     "Amateur_harvesters",
-                    "Non_harvesters"))
+                    "Non-harvesting_professionals"))
 
 
 ##### Plot clusters ###
@@ -1386,21 +1360,17 @@ plot_data_particip <- data.frame(
   row_name = rownames(res.mca.particip$ind$coord),
   Dim.1 = res.mca.particip$ind$coord[,1],
   Dim.2 = res.mca.particip$ind$coord[,2],
-  Cluster = res.hcpc.particip$data.clust$clust
+  Group = res.hcpc.particip$data.clust$clust
 )
 
-plot_MCA_particip <- ggplot(plot_data_particip, aes(Dim.1, Dim.2, color = Cluster)) +
-  geom_point(alpha = 0.8, size = 3) +
-  stat_ellipse(aes(group = Cluster), type = "t", geom = "polygon", alpha = 0.2, linetype = "dashed") +
+plot_MCA_particip <- ggplot(plot_data_particip, aes(Dim.1, Dim.2, color = Group)) +
+  geom_point(alpha = 0.5, size = 3) +
+  stat_ellipse(aes(group = Group), type = "t", geom = "polygon", alpha = 0.2, linetype = "dashed") +
   labs(
-    title = "ACM des profils de répondants et classification en clusters",
-    subtitle = paste0("Variance expliquée par Dim.1 et Dim.2 : ", 
-                      round(res.mca.particip$eig[1,2], 1), "% et ", 
-                      round(res.mca.particip$eig[2,2], 1), "%"),
-    x = "Dimension 1",
-    y = "Dimension 2"
+    x = paste0("Dimension 1 (", round(res.mca.particip$eig[1,2], 1), "%)"),
+    y = paste0("Dimension 2 (", round(res.mca.particip$eig[2,2], 1), "%)"),
   ) +
-  theme_minimal() +
+  theme_minimal(base_size = 13) +
   scale_color_viridis_d(option = "plasma")
 
 plot_MCA_particip
@@ -1432,24 +1402,48 @@ new_labels <- rownames(var_data) %>%
   gsub("Amateur$", "Cueilleur amateur", .)
 rownames(var_data) <- new_labels
 
+
+# Create a named vector with translations
+translations <- c(
+  "Cueilleur professionnel" = "Professional harvester",
+  "categ_socio_pro_Agriculteurs exploitants" = "Farmers / farm owners",
+  "type_orga_rattach_Entreprise plantes sauvages" = "Wild plant business",
+  "30 a 100 especes cueillies" = "30-100 species collected",
+  "0 especes cueillies" = "0 species collected",
+  "Non cueilleur" = "Non-harvester",
+  "type_orga_rattach_Cooperative ou syndicat" = "Agricultural cooperative or union",
+  "type_orga_rattach_Police de l'environnement " = "Environmental police",
+  "categ_socio_pro_Artisans, commercants, chefs d entreprise" = "Craftspeople, merchants, business owners",
+  "Cueilleur amateur" = "Amateur harvester",
+  "categ_socio_pro_Retraites" = "Retired",
+  "type_orga_rattach_Aucune" = "None",
+  "type_orga_rattach_Service de l'Etat " = "State agency",
+  "type_orga_rattach_Gestionnaire d'espaces " = "Protected area manager",
+  "1 a 5 especes cueillies" = "1-5 species collected"
+)
+
+# Replace row names in var_data
+rownames(var_data) <- translations[rownames(var_data)]
+
 # Add arrows and labels to MCA plot
 plot_MCA_with_vars <- plot_MCA_particip +
   geom_segment(data = var_data, aes(x = 0, y = 0, xend = `Dim 1`, yend = `Dim 2`),
-               arrow = arrow(length = unit(0.2, "cm")), color = "black", size = 0.5) +
+               arrow = arrow(length = unit(0.2, "cm")), color = "black", size = 0.2) +
   geom_text_repel(data = var_data, aes(x = `Dim 1`, y = `Dim 2`, label = rownames(var_data)),
-                  color = "black", size = 3)
+                  color = "black", size = 4)
 
 plot_MCA_with_vars
 
-# plot_zoom_png?width=861&height=641
-png("plots/profile_MCA.png", 
-    width = 2583,     # pixels
-    height = 1923,   # pixels
+
+# plot_zoom_png?width=937&height=634
+png("plots/AppendixF_profile_MCA.png", 
+    width = 2811,     # pixels
+    height = 1902,   # pixels
     res = 300)        # resolution in dpi
 plot_MCA_with_vars
 dev.off()
 
-
+res.hcpc.particip$desc.var
 
 ##### Analyse performance #####
 # Calculate the distance matrix based on the MCA coordinates
@@ -1458,29 +1452,37 @@ dist_matrix <- dist(res.mca.particip$ind$coord)
 # Get the cluster assignments from the HCPC result
 # Convert the cluster factor to a numeric vector for compatibility
 cluster_assignments_numeric <- recode(res.hcpc.particip$data.clust$clust,
-                                             "Non_harvesters" = 3,
+                                             "Non-harvesting_professionals" = 3,
                                              "Amateur_harvesters" = 2,
-                                             "Pro_harvesters" = 1) %>%
+                                             "Professional_harvesters" = 1) %>%
   as.character() %>% as.numeric()
 
 # Compute the silhouette values with the numeric cluster assignments
 sil_result <- silhouette(cluster_assignments_numeric, dist_matrix)
-summary(sil_result)
 plot(sil_result)
+
+
+# plot_zoom_png?width=793&height=838
+png("plots/AppendixF_silhouette.png", 
+    width = 2379,     # pixels
+    height = 2514,   # pixels
+    res = 300)        # resolution in dpi
+plot(sil_result)
+dev.off()
 
 
 #### Do respondent profiles impact the perception of sustainability ? ####
 ##### Sustainability status VS respondent profile ####
 
 all_data_profile_clusters <- plot_data_particip %>%
-  dplyr::select(row_name, Cluster) %>%
+  dplyr::select(row_name, Group) %>%
   full_join(ref_table_particip, by="row_name") %>%
   left_join(all_data) %>%
   dplyr::select(-row_name)
 
 
 d <- all_data_profile_clusters %>% 
-  dplyr::select(id, ESPECE_nom, massif, ESPECE_durabilite, Cluster) %>%
+  dplyr::select(id, ESPECE_nom, massif, ESPECE_durabilite, Group) %>%
   unique() %>%
   na.omit()
 
@@ -1743,7 +1745,12 @@ cat("Classification accuracy:", round(mean(pred == lda_data$ESPECE_durabilite)*1
 # Classification accuracy: 90.9 %
 
 
-#### Do respondents’ perceptions of rarity and abundance correspond to actual species abundance ? ####
+#### APPENDIX G - Variable contributions to DFA ####
+sorted_correlations
+
+
+#### APPENDIX H - Comparison between perceived and actual species abundance ####
+# Do respondents’ perceptions of rarity and abundance correspond to actual species abundance ?
 rarity <- all_data %>%
   dplyr::select(id, ESPECE_nom, ESPECE_presence, ESPECE_durabilite, ESPECE_dpt, sp_relative_area) %>%
   unique() %>%
@@ -1788,7 +1795,7 @@ rarity %>%
 
 
 ##### Plot ###
-ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
+perceivedVSactual <- ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
   geom_boxplot(fill = "lightgrey", outlier.shape = NA) +
   geom_jitter(aes(color = ESPECE_durabilite), width = 0.2, height = 0) +
   scale_color_manual(
@@ -1803,16 +1810,31 @@ ggplot(rarity, aes(x = ESPECE_presence, y = sp_relative_area)) +
     step.increase = 0.05
   ) +
   labs(
-    title = "Comparison between perceived and actual species abundance",
-    x = "Species abundance category",
-    y = "Species coverage of per department (%)",
-    color = "Sustainability status"
+    x = "Species perceived abundance category",
+    y = "Species coverage per department (%)",
+    color = "Perceived sustainability"
   ) +
+  scale_x_discrete(labels = c(
+    "Abondante large"   = "Widely abudant",
+    "Abondante locale"       = "Locally abundant",
+    "Rare" = "Rare",
+    "Extremement rare"     = "Extremely rare",
+    "JNSP"= "IDK"
+  )) +
   theme_minimal(base_size = 13) +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "right"
   )
+
+# plot_zoom_png?width=750&height=487
+png("plots/AppendixH_perceivedVSactual_abundance.png", 
+    width = 2250,
+    height = 1461,
+    res = 300)
+perceivedVSactual
+dev.off()
+
 
 
 #### Can species perceived sustainability be predicted from CSR strategy, life form, and distribution characteristics? ####
@@ -1898,6 +1920,9 @@ cat("Classification accuracy:", round(mean(pred == lda_data$ESPECE_durabilite)*1
 
 
 ##### GLM #####
+ggplot(data_dfa_durabilite_sp_bio, aes(x=(csr_simple))) +
+  geom_tern # grarphe CSR
+
 # Prepare data
 data_dfa_durabilite_sp_bio <- all_data %>%
   dplyr::select(id, ESPECE_nom, CD_REF, ESPECE_durabilite, C, S, R, 
@@ -2152,6 +2177,8 @@ species_maps_massif
 dev.off()
 
 
+
+#### APPENDIX J - Unsustainable mentions across harvesting areas ####
 plot_map_France_dpt <- function() {
 
   plot_species_map_generic(
@@ -2196,12 +2223,12 @@ plot_map_France_massif <- function() {
 
 plot_map_France_dpt() + plot_map_France_massif()
 
-# plot_zoom_png?width=1272&height=480
-png("plots/Figure_3_all_France_species_maps.png", 
-    width = 3816,
-    height = 1440,
+# plot_zoom_png?width=728&height=497
+png("plots/AppendixJ_all_France_species_maps.png", 
+    width = 2184,
+    height = 1491,
     res = 300)
-plot_map_France_dpt() + plot_map_France_massif() + plot_annotation(tag_levels = "a") 
+plot_map_France_massif()
 dev.off()
 
 
@@ -2221,6 +2248,114 @@ with(national_summary, {
 # 30.72300 25.75785 35.68815 
 
 
+#### APPENDIX K - Effect of departements on harvesting sustainablity ####
+# citations_by_species_dpt$response <- with(citations_by_species_dpt, cbind(`Non durable`, Durable))
+citations_by_species_dpt$ratio <- round(citations_by_species_dpt$`Non durable`/
+                                          citations_by_species_dpt$total_citations,2)
+
+
+# Fit models for each species
+models <- lapply(unique(citations_by_species_dpt$nom), function(sp) {
+  df_sp <- filter(citations_by_species_dpt, nom == sp)
+  all_constant <- all(df_sp$`Non durable` == 0 | df_sp$Durable == 0)
+  
+  # Check why we would skip
+  if(length(unique(df_sp$dpt)) < 2) {
+    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "only 1 department"))
+  }
+  if(all_constant) {
+    return(list(skipped = TRUE, model = NULL, singular = NA, reason_skipped = "constant response"))
+  }
+  
+  # Fit GLMM
+  model <- glmer(cbind(`Non durable`, Durable) ~ 1 + (1 | dpt),
+                 data = df_sp, family = binomial)
+  
+  # Check if model is singular
+  singular_flag <- isSingular(model)
+  
+  list(skipped = FALSE, model = model, singular = singular_flag, reason_skipped = NA)
+})
+names(models) <- unique(citations_by_species_dpt$nom)
+
+# Build national-level summary
+summary_species <- data.frame(
+  species_name = character(),
+  observed_ratio = numeric(),
+  pred_prob = numeric(),
+  pred_prob_logit = numeric(),
+  sd_dpt = numeric(),
+  MOR_dpt = numeric(),    # median odds ratio
+  CI_lower = numeric(),   # IC 95% basé sur SD du random effect
+  CI_upper = numeric(),
+  skipped = logical(),
+  # singular = logical(),
+  reason_skipped = character(),
+  stringsAsFactors = FALSE
+)
+
+for(sp in names(models)) {
+  df_sp <- filter(citations_by_species_dpt, nom == sp)
+  
+  # Observed ratio (national)
+  total_non <- sum(df_sp$`Non durable`)
+  total_all <- sum(df_sp$`Non durable` + df_sp$Durable)
+  obs_ratio <- ifelse(total_all > 0, total_non / total_all, NA)
+  
+  if(models[[sp]]$skipped) {
+    pred_prob <- NA
+    pred_prob_logit <- NA
+    sd_dpt <- NA
+    MOR_dpt <- NA
+    CI_lower <- NA
+    CI_upper <- NA
+    flagged <- TRUE
+    # singular_flag <- NA
+    reason <- models[[sp]]$reason_skipped
+  } else {
+    model <- models[[sp]]$model
+    
+    # Probabilité nationale
+    pred_prob_logit <- fixef(model)        # logit
+    pred_prob <- plogis(pred_prob_logit)   # inverse logit
+    
+    # Variabilité départementale
+    var_dpt <- as.numeric(VarCorr(model)$dpt[1])
+    sd_dpt <- sqrt(var_dpt)
+    
+    # MOR
+    MOR_dpt <- exp(sqrt(2 * var_dpt) * 0.6745)
+    
+    # IC 95 % basé sur SD des départements
+    CI_lower <- plogis(pred_prob_logit - 1.96 * sd_dpt)
+    CI_upper <- plogis(pred_prob_logit + 1.96 * sd_dpt)
+    
+    flagged <- FALSE
+    singular_flag <- models[[sp]]$singular
+    reason <- NA
+  }
+  
+  summary_species <- rbind(summary_species,
+                           data.frame(
+                             species_name = sp,
+                             observed_ratio = obs_ratio,
+                             pred_prob = pred_prob,
+                             pred_prob_logit = pred_prob_logit,
+                             sd_dpt = sd_dpt,
+                             MOR_dpt = MOR_dpt,
+                             CI_lower = CI_lower,
+                             CI_upper = CI_upper,
+                             skipped = flagged,
+                             # singular = singular_flag,
+                             reason_skipped = reason,
+                             stringsAsFactors = FALSE
+                           ))
+}
+
+summary_species
+# summary(models$`Allium ursinum`$model)
+
+write.csv(summary_species, "processed_data/AppendixK_MOR_calculations.csv", row.names=F)
 
 ####_________####
 #### Figure 5 - Are the assumptions of the respondents concerning species regulations correct ? #####
@@ -2679,12 +2814,6 @@ colors_montagne <- c("#4d004b", "#810f7c", "#88419d", "#8c6bb1")   # Mountain ar
 colors_med_corse <- c("#FD8D3C", "#fdd0a2")                         # Mediterranean & Corsica
 colors_plaine   <- c("#023858", "#045a8d", "#0570b0", "#3690c0", "#74a9cf") # Lowland areas
 
-harvesting_area_levels <- c(
-  "Alps", "Pyrenees", "Jura–Northern Alps", "Central Massif",
-  "Mediterranean", "Corsica",
-  "Northern Paris Basin", "Southern Paris Basin", "North–East", "Armorican Massif", "South–West"
-)
-
 massif_colors <- c(colors_montagne, colors_med_corse, colors_plaine)
 names(massif_colors) <- harvesting_area_levels
 harvesting_area_letters <- setNames(LETTERS[1:length(harvesting_area_levels)], harvesting_area_levels)
@@ -2693,7 +2822,7 @@ harvesting_area_letters <- setNames(LETTERS[1:length(harvesting_area_levels)], h
 ## Prepare spatial data
 departements_simpl_PARIS$harvesting_area <- factor(
   departements_simpl_PARIS$massif,
-  levels = massif_levels,
+  levels = harvesting_area_levels,
   labels = harvesting_area_levels
 )
 
@@ -2737,7 +2866,7 @@ plot_harvest_areas <- ggplot() +
     legend.title = element_text(face = "bold"),
     legend.text = element_text(size = 10)
   )
-
+plot_harvest_areas
 
 ## Prepare sustainability data
 data_enjeux_3 <- data_enjeux %>%
@@ -2763,7 +2892,7 @@ data_enjeux_3 <- data_enjeux %>%
                                    "Sustainable (≥3 citations)", "Unsustainable (≥3 citations)"))) %>%
   ungroup() %>%
   mutate(
-    massif = factor(massif, levels = massif_levels, labels = harvesting_area_levels),
+    massif = factor(massif, levels = harvesting_area_levels, labels = harvesting_area_levels),
     massif_letter = harvesting_area_letters[massif]
   )
 
