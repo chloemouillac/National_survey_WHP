@@ -198,6 +198,19 @@ departements_simpl_PARIS <- departements %>%
   dplyr::select(-group)
 
 
+map_data <- departements_simpl_PARIS %>%
+  group_by(massif) %>%
+  summarise() %>%
+  ungroup()
+
+centroids <- map_data %>%
+  mutate(geometry = st_centroid(geometry))
+
+# Boundaries of harvesting areas
+harvesting_area_boundaries <- departements_simpl_PARIS %>%
+  group_by(massif) %>%
+  summarize(geometry = st_union(geometry))
+
 # Define color palettes for harvesting areas
 colors_montagne <- c("#4d004b", "#810f7c", "#88419d", "#8c6bb1")   # Mountain areas
 colors_med_corse <- c("#FD8D3C", "#fdd0a2")                         # Mediterranean & Corsica
@@ -209,6 +222,7 @@ harvesting_area_levels <- c(
   "Mediterranean", "Corsica",
   "Northern Paris Basin", "Southern Paris Basin", "North-East", "Armorican Massif", "South-West"
 )
+harvesting_area_letters <- setNames(LETTERS[1:length(harvesting_area_levels)], harvesting_area_levels)
 
 massif_colors <- c(colors_montagne, colors_med_corse, colors_plaine)
 names(massif_colors) <- harvesting_area_levels
@@ -216,7 +230,7 @@ names(massif_colors) <- harvesting_area_levels
 plot_harvest_areas <- ggplot() +
   geom_sf(data = departements_simpl_PARIS, aes(fill = massif), colour = "white", alpha = 0.8) +
   geom_sf(data = harvesting_area_boundaries, fill = NA, colour = "black", size = 1) +
-  geom_label(data = centroids, aes(label = letter, geometry = geometry),
+  geom_label(data = centroids, aes(label = harvesting_area_letters, geometry = geometry),
              stat = "sf_coordinates", size = 4, fontface = "bold", color = "black",
              fill = "white", label.size = 0.3) +
   scale_fill_manual(
@@ -1048,7 +1062,7 @@ plot_durability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/F
 # max citations=7 because the 20 most cited species are cited minimum 8 times (Artemisia genipi)
 
 # plot_zoom_png?width=786&height=416
-png("plots/Figure_3_rare_species_20pct.png", 
+png("plots/Figure_2_rare_species_20pct.png", 
     width = 2358,
     height = 1248,
     res = 300)
@@ -1445,6 +1459,28 @@ dev.off()
 
 res.hcpc.particip$desc.var
 
+##### Compare the amount of men ####
+# Reattach cluster to original participant profile
+cluster_gender <- all_data_ACM_participant_profile %>%
+  select(id, PROFIL_genre) %>%
+  left_join(
+    res.hcpc.particip$data.clust %>%
+      mutate(row_name = rownames(.)) %>%
+      left_join(ref_table_particip, by = "row_name") %>%
+      select(id, clust),
+    by = "id"
+  )
+
+# Contingency table
+table_gender_cluster <- table(cluster_gender$clust,
+                              cluster_gender$PROFIL_genre)
+
+# Percentages within cluster (rows sum to 100)
+prop_gender_cluster <- prop.table(table_gender_cluster, margin = 1) * 100
+
+round(prop_gender_cluster, 1)
+
+
 ##### Analyse performance #####
 # Calculate the distance matrix based on the MCA coordinates
 dist_matrix <- dist(res.mca.particip$ind$coord)
@@ -1659,7 +1695,7 @@ var_contrib <- ggplot(top_var_contrib, aes(x = reorder(Variable, Coefficient), y
   scale_fill_manual(values = c("Unsustainable" = "#D00F0F", "Sustainable" = "#64A251")) +
   geom_hline(yintercept = 0, color = "black") +
   labs(x = "",
-       y = "FDA Coefficient",
+       y = "DFA Coefficient",
        fill = "Sustainability perception") +
 
   theme_minimal(base_size = 14) +
@@ -1698,19 +1734,14 @@ top_plots <- DFA_distrib_nolegend + var_contrib_nolegend
 combined_with_legend <- top_plots / wrap_elements(legend_grob) + 
   plot_layout(heights = c(10, 1))
 
-# Add annotations only to the top plots
-FDA_plot <- combined_with_legend + plot_annotation(tag_levels = "a", tag_suffix = "", tag_prefix = "")
-
-FDA_plot
-
 
 
 # plot_zoom_png?width=941&height=451
-png("plots/Figure_2_DFA_sustainability.png", 
+png("plots/Figure_3_DFA_sustainability.png", 
     width = 2823,     # pixels
     height = 1353,   # pixels
     res = 300)        # resolution in dpi
-FDA_plot
+combined_with_legend + plot_annotation(tag_levels = "a", tag_suffix = "", tag_prefix = "")
 dev.off()
 # remove c in gimp
 
@@ -1987,7 +2018,64 @@ cat("Classification accuracy:",
     round(confusionMatrix(pred_class, 
                           data_dfa_durabilite_sp_bio$ESPECE_durabilite)$overall['Accuracy'] * 100, 1), "%\n")
 
+##### PCA #####
+data_acp <- all_data %>%
+  dplyr::select(id, ESPECE_nom, CD_REF,
+                ESPECE_durabilite, C, S, R) %>%
+  unique() %>%
+  na.omit() %>%
+  dplyr::select(-CD_REF, -id)
 
+data_acp$ESPECE_durabilite <- as.factor(data_acp$ESPECE_durabilite)
+
+pca_res <- prcomp(data_acp[, c("C", "S", "R")],
+                  center = FALSE,
+                  scale. = FALSE)
+
+pca_scores <- as.data.frame(pca_res$x)
+
+pca_scores$ESPECE_durabilite <- data_acp$ESPECE_durabilite
+pca_scores$ESPECE_nom <- data_acp$ESPECE_nom
+
+
+ggplot(pca_scores, aes(x = PC1, y = PC2, color = ESPECE_durabilite)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "PCA on CSR traits",
+       x = "PC1",
+       y = "PC2",
+       color = "Durabilité")
+
+
+loadings <- as.data.frame(pca_res$rotation)
+loadings$var <- rownames(loadings)
+
+ggplot(pca_scores, aes(PC1, PC2, color = ESPECE_durabilite)) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_segment(data = loadings,
+               aes(x = 0, y = 0, xend = PC1 * 3, yend = PC2 * 3),
+               arrow = arrow(length = unit(0.2, "cm")),
+               color = "black") +
+  geom_text(data = loadings,
+            aes(x = PC1 * 3.2, y = PC2 * 3.2, label = var),
+            color = "black") +
+  theme_minimal()
+
+summary(pca_res)
+pca_res$rotation
+
+
+ggplot(pca_scores, aes(x = ESPECE_durabilite, y = PC2, fill = ESPECE_durabilite)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "PC2 by durability class",
+       y = "PC2 (Stress-tolerant ↔ Competitive/Ruderal)")
+
+ggplot(pca_scores, aes(x = ESPECE_durabilite, y = PC1, fill = ESPECE_durabilite)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "PC2 by durability class",
+       y = "PC2 (Stress-tolerant ↔ Competitive/Ruderal)")
 
 
 ####_________####
@@ -2150,7 +2238,7 @@ species_maps_dpt2 <-   plot_species_map_dpt("Filipendula ulmaria") +
 species_maps_dpt2
 
 # plot_zoom_png?width=905&height=697
-png("plots/Figure_3_species_maps_dpt.png", 
+png("plots/Figure_4_species_maps_dpt.png", 
     width = 2715,
     height = 2091,
     res = 300)
@@ -2158,7 +2246,7 @@ species_maps_dpt
 dev.off()
 
 # plot_zoom_png?width=1333&height=844
-png("plots/Figure_3_species_maps_dpt2.png", 
+png("plots/Figure_4_species_maps_dpt2.png", 
     width = 3999,
     height = 2532,
     res = 300)
@@ -2168,13 +2256,13 @@ dev.off()
 species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Filipendula ulmaria") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_massif
 
-# plot_zoom_png?width=905&height=697
-png("plots/Figure_3_species_maps_massif.png", 
-    width = 2715,
-    height = 2091,
-    res = 300)
-species_maps_massif
-dev.off()
+# # plot_zoom_png?width=905&height=697
+# png("plots/Figure_4_species_maps_massif.png", 
+#     width = 2715,
+#     height = 2091,
+#     res = 300)
+# species_maps_massif
+# dev.off()
 
 
 
@@ -2564,7 +2652,7 @@ regulation_plot <- count_regul_answers + pct_correct_regul + plot_annotation(tag
 regulation_plot
 
 # plot_zoom_png?width=982&height=515
-png("plots/Figure_4_regulations.png", 
+png("plots/Figure_5_regulations.png", 
     width = 2946,     # pixels
     height = 1143,   # pixels
     res = 300)        # resolution in dpi
@@ -2584,11 +2672,11 @@ df <- data_regl_prot_join %>%
 data_regl_eval$reglem_glm <- paste(data_regl_eval$ESPECE_espece_reglem, data_regl_eval$reponse_correcte, sep = "_")
 
 data_regl_eval <- data_regl_eval %>%
-  left_join(dplyr::select(all_data_profile_clusters, id, Cluster)%>%unique())
+  left_join(dplyr::select(all_data_profile_clusters, id, Group)%>%unique())
 
 data_regl_eval$reponse_correcte <- ifelse(data_regl_eval$reponse_correcte == "Correct", 1, 0)
 
-glm_fit <- glmer(reponse_correcte ~ Cluster +(1|ESPECE_nom),
+glm_fit <- glmer(reponse_correcte ~ Group +(1|ESPECE_nom),
                data = data_regl_eval,
                family = binomial(link="logit"))
 summary(glm_fit)
@@ -2838,11 +2926,6 @@ centroids <- departements_simpl_PARIS %>%
   summarize(geometry = st_union(geometry)) %>%
   st_centroid() %>%
   mutate(letter = harvesting_area_letters[harvesting_area])
-
-# Boundaries of harvesting areas
-harvesting_area_boundaries <- departements_simpl_PARIS %>%
-  group_by(harvesting_area) %>%
-  summarize(geometry = st_union(geometry))
 
 
 # Map of harvesting areas
