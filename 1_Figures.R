@@ -586,7 +586,7 @@ all_data <- df_profile_renamed %>%
     SPECIES_market_trend= dplyr::recode(SPECIES_market_trend, "Yes" = "Trend", "No" = "No trend"),
     SPECIES_market_trend_risk = dplyr::recode(SPECIES_market_trend_risk, "Yes" = "Trend with risk", "No" = "Trend without risk"),
     PROFILE_harvester_status = case_when(
-      str_detect(PROFILE_harvester_status, "leisure")  ~ "Amateur",
+      str_detect(PROFILE_harvester_status, "leisure")  ~ "Recreational",
       str_detect(PROFILE_harvester_status, "income") ~ "Professional",
       TRUE ~ PROFILE_harvester_status
     ),
@@ -1355,10 +1355,10 @@ print(res.hcpc.particip$desc.var)
 # Recode cluster numbers
 res.hcpc.particip$data.clust$clust <- recode(res.hcpc.particip$data.clust$clust,
                                            `1` = "Non-harvesting_professionals",
-                                           `2` = "Amateur_harvesters",
+                                           `2` = "Recreational_harvesters",
                                            `3` = "Professional_harvesters") %>%
   factor(levels = c("Professional_harvesters",
-                    "Amateur_harvesters",
+                    "Recreational_harvesters",
                     "Non-harvesting_professionals"))
 
 
@@ -1406,12 +1406,12 @@ new_labels <- rownames(var_data) %>%
   gsub("^30 to 100$", "30 to 100 harvested species", .) %>%
   gsub("PROFILE_", "", .) %>%
   gsub("Professional$", "Professional harvester", .) %>%
-  gsub("Amateur$", "Amateur harvester", .)
+  gsub("Recreational$", "Recreational harvester", .)
 rownames(var_data) <- new_labels
 
 
-# Create a named vector with translations
-translations <- c(
+# Create a named vector with name simplifications
+simplifications <- c(
   "Professional harvester" = "Professional harvester",
   "socio_pro_category_Farmers" = "Farmers / farm owners",
   "affiliated_structure_type_Wild-plant business" = "Wild-plant business",
@@ -1421,7 +1421,7 @@ translations <- c(
   "affiliated_structure_type_Cooperative or trade union" = "Agricultural cooperative or union",
   "affiliated_structure_type_Environmental enforcement authorities " = "Environmental police",
   "socio_pro_category_Artisans, traders, business owners" = "Craftspeople, merchants, business owners",
-  "Amateur harvester" = "Amateur harvester",
+  "Recreational harvester" = "Recreational harvester",
   "socio_pro_category_Retired" = "Retired",
   "affiliated_structure_type_None" = "No affiliated structure",
   "affiliated_structure_type_Government department " = "State agency",
@@ -1430,7 +1430,7 @@ translations <- c(
 )
 
 # Replace row names in var_data
-rownames(var_data) <- translations[rownames(var_data)]
+rownames(var_data) <- simplifications[rownames(var_data)]
 
 # Add arrows and labels to MCA plot
 plot_MCA_with_vars <- plot_MCA_particip +
@@ -1482,7 +1482,7 @@ dist_matrix <- dist(res.mca.particip$ind$coord)
 # Convert the cluster factor to a numeric vector for compatibility
 cluster_assignments_numeric <- recode(res.hcpc.particip$data.clust$clust,
                                              "Non-harvesting_professionals" = 3,
-                                             "Amateur_harvesters" = 2,
+                                             "Recreational_harvesters" = 2,
                                              "Professional_harvesters" = 1) %>%
   as.character() %>% as.numeric()
 
@@ -1661,7 +1661,7 @@ label_dict <- c(
   "SPECIES_species_regulation.Yes..it.is.regulated" = "Regulated species",
   "SPECIES_harv_intensity.High" = "High harvesting intensity",
   "SPECIES_harv_spread.Localised." = "Localised harvesting",
-  "SPECIES_presence.Extremement.rare" = "Extremely rare species",
+  "SPECIES_presence.Extremely.rare" = "Extremely rare species",
   "SPECIES_uses_Food.No" = "No food use",
   "SPECIES_harv_variation.Increase" = "Increasing harvesting levels",
   "SPECIES_uses_Ornamental.Yes" = "Ornamental use",
@@ -1767,7 +1767,7 @@ cat("Classification accuracy:", round(mean(pred == lda_data$SPECIES_sustainabili
 
 #### APPENDIX G - Variable contributions to DFA ####
 sorted_correlations
-
+write.csv(sorted_correlations, "processed_data/APPENDIXG_variables_contrib_DFA.csv")
 
 #### APPENDIX H - Perceived VS actual species abundance ####
 # Do respondents’ perceptions of rarity and abundance correspond to actual species abundance ?
