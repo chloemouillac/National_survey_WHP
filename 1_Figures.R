@@ -1802,81 +1802,82 @@ dev.off()
 
 
 
-#### Can species perceived sustainability be predicted from CSR strategy, life form, and distribution characteristics? ####
-##### DFA ####
-# Variable réponse (binaire : "Sustainable" / "Non durable")
-data_dfa_durabilite_sp_bio <- all_data %>%
-  dplyr::select(id, SPECIES_name, CD_REF,
-                SPECIES_sustainability, C, S, R, csr_simple, sp_relative_area, choix_type_bio) %>%
-  unique() %>%
-  na.omit() %>%
-  dplyr::select(-CD_REF, -id) %>%
-  droplevels() %>%
-  mutate(across(-c(SPECIES_sustainability, C, S, R, csr_simple, sp_relative_area), as.factor))
+#### APPENDIX I - Can species perceived sustainability be predicted from CSR strategy, life form, and distribution characteristics? ####
+# ##### DFA ####
+# # Variable réponse (binaire : "Sustainable" / "Non durable")
+# data_dfa_durabilite_sp_bio <- all_data %>%
+#   dplyr::select(id, SPECIES_name, CD_REF,
+#                 SPECIES_sustainability, sp_relative_area, choix_type_bio) %>%
+#   unique() %>%
+#   na.omit() %>%
+#   dplyr::select(-CD_REF, -id) %>%
+#   droplevels() %>%
+#   mutate(across(-c(SPECIES_sustainability, sp_relative_area), as.factor))
+# 
+# data_dfa_durabilite_sp_bio_summar <- data_dfa_durabilite_sp_bio %>%
+#   group_by(SPECIES_name, SPECIES_sustainability) %>%
+#   summarise(count=n(), choix_type_bio=first(choix_type_bio))
+# 
+# active_vars <- data_dfa_durabilite_sp_bio %>%
+#   dplyr::select(-SPECIES_sustainability, -SPECIES_name)
+# 
+# grouping_factor <- data_dfa_durabilite_sp_bio$SPECIES_sustainability
+# 
+# 
+# # --- Run DFA ---
+# res.dfa <- discrimin(dudi.mix(active_vars, scannf = FALSE), 
+#                      fac = grouping_factor, 
+#                      scannf = FALSE)
+# 
+# # --- Visualise Results ---
+# plot_data <- data.frame(
+#   score_dfa = res.dfa$li$DS1,
+#   group = grouping_factor
+# )
+# 
+# ggplot(plot_data, aes(x = score_dfa, fill = group)) +
+#   geom_density(alpha = 0.5) +
+#   labs( title = "Species distribution by sustainability status",
+#         x = "Discriminant Axis 1",
+#         y = "Density",
+#         fill = "Sustainability perception") +
+#   theme_minimal() +
+#   scale_fill_manual(values = c("Sustainable" = "#64A251", "Unsustainable" = "#D00F0F"))
+# 
+# # --- Get Contributions ---
+# correlations <- as.data.frame(res.dfa$va)
+# 
+# sorted_correlations <- correlations[order(abs(correlations$CS1), decreasing = TRUE), , drop = FALSE]
+# head(sorted_correlations, 10)
+# 
+# 
+# # --- Cohen's d ---
+# group_stats <- plot_data %>%
+#   group_by(group) %>%
+#   summarise(mean_score = mean(score_dfa),
+#             sd_score = sd(score_dfa),
+#             n = n())
+# 
+# mean_diff <- diff(group_stats$mean_score)
+# pooled_sd <- sqrt(((group_stats$sd_score[1]^2)*(group_stats$n[1]-1) +
+#                      (group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
+#                     (sum(group_stats$n)-2))
+# cohens_d <- mean_diff / pooled_sd
+# 
+# cat("Cohen's d (DS1 separation):", round(cohens_d, 3), "\n")
+# 
+# # --- Classification accuracy ---
+# # Prepare data for LDA (all predictors as factors)
+# lda_data <- data_dfa_durabilite_sp_bio %>%
+#   dplyr::select(-SPECIES_name)
+# 
+# lda_fit <- lda(SPECIES_sustainability ~ ., data = lda_data)
+# pred <- predict(lda_fit)$class
+# 
+# table(Predicted = pred, Actual = lda_data$SPECIES_sustainability) # Confusion matix
+# 
+# cat("Classification accuracy:", round(mean(pred == lda_data$SPECIES_sustainability)*100, 1), "%\n")
 
-data_dfa_durabilite_sp_bio_summar <- data_dfa_durabilite_sp_bio %>%
-  group_by(SPECIES_name, SPECIES_sustainability) %>%
-  summarise(count=n(), csr_simple=first(csr_simple), choix_type_bio=first(choix_type_bio))
-
-active_vars <- data_dfa_durabilite_sp_bio %>%
-  dplyr::select(-SPECIES_sustainability, -SPECIES_name)
-
-grouping_factor <- data_dfa_durabilite_sp_bio$SPECIES_sustainability
-
-
-# --- Run DFA ---
-res.dfa <- discrimin(dudi.mix(active_vars, scannf = FALSE), 
-                     fac = grouping_factor, 
-                     scannf = FALSE)
-
-# --- Visualise Results ---
-plot_data <- data.frame(
-  score_dfa = res.dfa$li$DS1,
-  group = grouping_factor
-)
-
-ggplot(plot_data, aes(x = score_dfa, fill = group)) +
-  geom_density(alpha = 0.5) +
-  labs( title = "Species distribution by sustainability status",
-        x = "Discriminant Axis 1",
-        y = "Density",
-        fill = "Sustainability perception") +
-  theme_minimal() +
-  scale_fill_manual(values = c("Sustainable" = "#64A251", "Unsustainable" = "#D00F0F"))
-
-# --- Get Contributions ---
-correlations <- as.data.frame(res.dfa$va)
-
-sorted_correlations <- correlations[order(abs(correlations$CS1), decreasing = TRUE), , drop = FALSE]
-head(sorted_correlations, 10)
-
-
-# --- Cohen's d ---
-group_stats <- plot_data %>%
-  group_by(group) %>%
-  summarise(mean_score = mean(score_dfa),
-            sd_score = sd(score_dfa),
-            n = n())
-
-mean_diff <- diff(group_stats$mean_score)
-pooled_sd <- sqrt(((group_stats$sd_score[1]^2)*(group_stats$n[1]-1) +
-                     (group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
-                    (sum(group_stats$n)-2))
-cohens_d <- mean_diff / pooled_sd
-
-cat("Cohen's d (DS1 separation):", round(cohens_d, 3), "\n")
-
-# --- Classification accuracy ---
-# Prepare data for LDA (all predictors as factors)
-lda_data <- data_dfa_durabilite_sp_bio %>%
-  dplyr::select(-SPECIES_name)
-
-lda_fit <- lda(SPECIES_sustainability ~ ., data = lda_data)
-pred <- predict(lda_fit)$class
-
-table(Predicted = pred, Actual = lda_data$SPECIES_sustainability) # Confusion matix
-
-cat("Classification accuracy:", round(mean(pred == lda_data$SPECIES_sustainability)*100, 1), "%\n")
 
 
 ##### GLM #####
@@ -1885,32 +1886,33 @@ cat("Classification accuracy:", round(mean(pred == lda_data$SPECIES_sustainabili
 
 # Prepare data
 data_dfa_durabilite_sp_bio <- all_data %>%
-  dplyr::select(id, SPECIES_name, CD_REF, SPECIES_sustainability, C, S, R, 
-                csr_simple, sp_relative_area, choix_type_bio) %>%
+  dplyr::select(id, SPECIES_name, CD_REF, SPECIES_sustainability, sp_relative_area, choix_type_bio) %>%
   unique() %>%
   na.omit() %>%
   dplyr::select(-CD_REF, -id) %>%
   mutate(
     # Now explicitly set reference level:
     SPECIES_sustainability = relevel(SPECIES_sustainability, ref = "Unsustainable"), # !! the model is predicting the log-odds of being Sustainable
-    across(-c(C, S, R, sp_relative_area), as.factor)
+    across(-c(sp_relative_area), as.factor)
   )
 
 # Regression
-glm_fit <- glm(SPECIES_sustainability ~ sp_relative_area + csr_simple + choix_type_bio,
+glm_fit <- glm(SPECIES_sustainability ~ sp_relative_area + choix_type_bio,
                data = data_dfa_durabilite_sp_bio,
                family = binomial(link="logit"))
 summary(glm_fit)
 
 # Odds ratios and contributions
-summary(glm_fit)$coefficients %>%
+glm_res <- summary(glm_fit)$coefficients %>%
   as.data.frame() %>%
   mutate(
     Odds_Ratio = exp(Estimate),
     CI_low = exp(Estimate - 1.96 * `Std. Error`),
     CI_high = exp(Estimate + 1.96 * `Std. Error`)
-  ) %>%
-  print()
+  )
+
+print(glm_res)
+# write.csv(glm_res, "processed_data/AppendixI_glm_ecol_contrib.csv")
 
 # Find optimal threshold to culculate model performance
 pred_probs <- predict(glm_fit, newdata = data_dfa_durabilite_sp_bio, type = "response")
@@ -1937,71 +1939,84 @@ opt_coords["threshold"]
 # Use the same factor levels and order as the actual data
 pred_class <- ifelse(pred_probs > as.numeric(opt_coords["threshold"]), "Sustainable","Unsustainable")
 pred_class <- factor(pred_class, levels = levels(data_dfa_durabilite_sp_bio$SPECIES_sustainability))
-confusionMatrix(pred_class, data_dfa_durabilite_sp_bio$SPECIES_sustainability)
 
-# Extract and print accuracy directly.
-cat("Classification accuracy:", 
-    round(confusionMatrix(pred_class, 
-                          data_dfa_durabilite_sp_bio$SPECIES_sustainability)$overall['Accuracy'] * 100, 1), "%\n")
+cm <- confusionMatrix(
+  pred_class,
+  data_dfa_durabilite_sp_bio$SPECIES_sustainability
+)
 
-##### PCA #####
-data_acp <- all_data %>%
-  dplyr::select(id, SPECIES_name, CD_REF,
-                SPECIES_sustainability, C, S, R) %>%
-  unique() %>%
-  na.omit() %>%
-  dplyr::select(-CD_REF, -id)
+# Accuracy
+acc <- cm$overall['Accuracy']
 
-data_acp$SPECIES_sustainability <- as.factor(data_acp$SPECIES_sustainability)
+# 95% Confidence Interval
+acc_ci <- cm$overall[c('AccuracyLower', 'AccuracyUpper')]
 
-pca_res <- prcomp(data_acp[, c("C", "S", "R")],
-                  center = FALSE,
-                  scale. = FALSE)
-
-pca_scores <- as.data.frame(pca_res$x)
-
-pca_scores$SPECIES_sustainability <- data_acp$SPECIES_sustainability
-pca_scores$SPECIES_name <- data_acp$SPECIES_name
+# Print results
+cat("Classification accuracy:", round(acc * 100, 1), "%\n")
+cat("95% CI:", 
+    paste0("(", round(acc_ci[1] * 100, 1), "%, ",
+           round(acc_ci[2] * 100, 1), "%)\n"))
 
 
-ggplot(pca_scores, aes(x = PC1, y = PC2, color = SPECIES_sustainability)) +
-  geom_point(size = 3, alpha = 0.8) +
-  theme_minimal() +
-  labs(title = "PCA on CSR traits",
-       x = "PC1",
-       y = "PC2",
-       color = "Durabilité")
 
-
-loadings <- as.data.frame(pca_res$rotation)
-loadings$var <- rownames(loadings)
-
-ggplot(pca_scores, aes(PC1, PC2, color = SPECIES_sustainability)) +
-  geom_point(size = 3, alpha = 0.8) +
-  geom_segment(data = loadings,
-               aes(x = 0, y = 0, xend = PC1 * 3, yend = PC2 * 3),
-               arrow = arrow(length = unit(0.2, "cm")),
-               color = "black") +
-  geom_text(data = loadings,
-            aes(x = PC1 * 3.2, y = PC2 * 3.2, label = var),
-            color = "black") +
-  theme_minimal()
-
-summary(pca_res)
-pca_res$rotation
-
-
-ggplot(pca_scores, aes(x = SPECIES_sustainability, y = PC2, fill = SPECIES_sustainability)) +
-  geom_boxplot(alpha = 0.7) +
-  theme_minimal() +
-  labs(title = "PC2 by durability class",
-       y = "PC2 (Stress-tolerant ↔ Competitive/Ruderal)")
-
-ggplot(pca_scores, aes(x = SPECIES_sustainability, y = PC1, fill = SPECIES_sustainability)) +
-  geom_boxplot(alpha = 0.7) +
-  theme_minimal() +
-  labs(title = "PC2 by durability class",
-       y = "PC2 (Stress-tolerant ↔ Competitive/Ruderal)")
+# ##### PCA #####
+# data_acp <- all_data %>%
+#   dplyr::select(id, SPECIES_name, CD_REF,
+#                 SPECIES_sustainability, C, S, R) %>%
+#   unique() %>%
+#   na.omit() %>%
+#   dplyr::select(-CD_REF, -id)
+# 
+# data_acp$SPECIES_sustainability <- as.factor(data_acp$SPECIES_sustainability)
+# 
+# pca_res <- prcomp(data_acp[, c("C", "S", "R")],
+#                   center = FALSE,
+#                   scale. = FALSE)
+# 
+# pca_scores <- as.data.frame(pca_res$x)
+# 
+# pca_scores$SPECIES_sustainability <- data_acp$SPECIES_sustainability
+# pca_scores$SPECIES_name <- data_acp$SPECIES_name
+# 
+# 
+# ggplot(pca_scores, aes(x = PC1, y = PC2, color = SPECIES_sustainability)) +
+#   geom_point(size = 3, alpha = 0.8) +
+#   theme_minimal() +
+#   labs(title = "PCA on CSR traits",
+#        x = "PC1",
+#        y = "PC2",
+#        color = "Durabilité")
+# 
+# 
+# loadings <- as.data.frame(pca_res$rotation)
+# loadings$var <- rownames(loadings)
+# 
+# ggplot(pca_scores, aes(PC1, PC2, color = SPECIES_sustainability)) +
+#   geom_point(size = 3, alpha = 0.8) +
+#   geom_segment(data = loadings,
+#                aes(x = 0, y = 0, xend = PC1 * 3, yend = PC2 * 3),
+#                arrow = arrow(length = unit(0.2, "cm")),
+#                color = "black") +
+#   geom_text(data = loadings,
+#             aes(x = PC1 * 3.2, y = PC2 * 3.2, label = var),
+#             color = "black") +
+#   theme_minimal()
+# 
+# summary(pca_res)
+# pca_res$rotation
+# 
+# 
+# ggplot(pca_scores, aes(x = SPECIES_sustainability, y = PC2, fill = SPECIES_sustainability)) +
+#   geom_boxplot(alpha = 0.7) +
+#   theme_minimal() +
+#   labs(title = "PC2 by durability class",
+#        y = "PC2 (Stress-tolerant ↔ Competitive/Ruderal)")
+# 
+# ggplot(pca_scores, aes(x = SPECIES_sustainability, y = PC1, fill = SPECIES_sustainability)) +
+#   geom_boxplot(alpha = 0.7) +
+#   theme_minimal() +
+#   labs(title = "PC2 by durability class",
+#        y = "PC2 (Stress-tolerant ↔ Competitive/Ruderal)")
 
 
 ####_________####
