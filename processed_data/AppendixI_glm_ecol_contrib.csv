@@ -1,7 +1,0 @@
-,Estimate,Std. Error,z value,Pr(>|z|),Odds_Ratio,CI_low,CI_high
-(Intercept),"-2,23","0,35","-6,33","0,00","0,11","0,05","0,22"
-sp_relative_area,"0,04","0,00","10,84","0,00","1,04","1,03","1,05"
-choix_type_biogéophyte,"-0,28","0,25","-1,12","0,26","0,76","0,46","1,23"
-choix_type_biohémicryptophyte,"0,04","0,24","0,18","0,86","1,04","0,65","1,68"
-choix_type_biophanérophyte,"0,87","0,34","2,59","0,01","2,39","1,24","4,63"
-choix_type_biothérophyte,"2,61","0,88","2,96","0,00","13,63","2,42","76,60"
