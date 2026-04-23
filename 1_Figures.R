@@ -767,7 +767,7 @@ df_sociopro$PROFILE_socio_pro_category <- factor(df_sociopro$PROFILE_socio_pro_c
 socio_pro <- ggplot(df_sociopro, aes(x = PROFILE_socio_pro_category)) +
   geom_bar() +
   ylab("Count") +
-  xlab("Respondent socio-professional category") +
+  xlab("Respondent socio-economic category") +
   theme_minimal(base_size = 13) +
   theme(axis.text.x = element_text(angle = 70, hjust=1))
 
@@ -1046,7 +1046,7 @@ nrow(sp_mentions)
 
 
 ####_________####
-#### Figure 1 - Harvesting sustainability of the 20 most cited species ####
+#### Figure 2 - Harvesting sustainability of the 20 most cited species ####
 plot_sustainability_ratio <- function(data, n = NULL,
                                   min_ratio = NULL, max_ratio = NULL,
                                   min_citations = NULL, max_citations = NULL) {
@@ -1104,8 +1104,8 @@ plot_sustainability_ratio <- function(data, n = NULL,
   ggplot(df_summary, aes(x = ratio_unsustainable, y = SPECIES_name, size = total_citations)) +
     # Add vertical line at 50%
     geom_vline(xintercept = 0.5, color = "grey70", linewidth = .3, linetype = "solid") +
-    # geom_point(color = "grey10") +
-    geom_point(aes(color = choix_type_bio)) +
+    geom_point(color = "grey10") +
+    # geom_point(aes(color = choix_type_bio)) +
     scale_x_continuous(
       labels = scales::percent_format(accuracy = 1),
       limits = c(0, 1)  # 0% to 100%
@@ -1133,7 +1133,7 @@ plot_sustainability_ratio(all_data %>% filter(!is.na(SPECIES_name)), n = 20)
 
 
 # plot_zoom_png?width=786&height=600
-png("plots/Figure_1_durability_ratio.png", 
+png("plots/Figure_2_durability_ratio.png", 
     width = 2358,     # pixels
     height = 1800,   # pixels
     res = 300)        # resolution in dpi
@@ -1164,7 +1164,7 @@ percent_unsustainable <- summary_unsustainable_species %>%
 percent_unsustainable # 36% of the species were, on average, perceived as being harvested unsustainably
 
 ####_________####
-#### Figure 2 - Rare species sustainability issues #####
+#### Figure 3 - Rare species sustainability issues #####
 citations_by_species_dpt <- df_all_species_data %>%
   dplyr::select(id, name, sustainability, dpt) %>% 
   filter(!is.na(dpt) & dpt != "") %>%
@@ -1252,7 +1252,7 @@ plot_sustainability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_
 # max citations=7 because the 20 most cited species are cited minimum 8 times (Artemisia genipi)
 
 # plot_zoom_png?width=786&height=416
-png("plots/Figure_2_rare_species_20pct.png", 
+png("plots/Figure_3_rare_species_20pct.png", 
     width = 2358,
     height = 1248,
     res = 300)
@@ -1524,7 +1524,7 @@ summary(model3)
 
 
 ####_________####
-#### Figure 3 - What variables impact the perception of sustainability ? ####
+#### Figure 4 - What variables impact the perception of sustainability ? ####
 # Variable réponse (binaire : "Sustainable" / "Non durable")
 data_dfa_durabilite_sp <- all_data %>%
   dplyr::select(id, SPECIES_name, CD_REF,
@@ -1671,7 +1671,7 @@ combined_with_legend <- top_plots / wrap_elements(legend_grob) +
 
 
 # plot_zoom_png?width=941&height=451
-png("plots/Figure_3_DFA_sustainability.png", 
+png("plots/Figure_4_DFA_sustainability.png", 
     width = 2823,     # pixels
     height = 1353,   # pixels
     res = 300)        # resolution in dpi
@@ -2020,7 +2020,7 @@ cat("95% CI:",
 
 
 ####_________####
-#### Figure 4 - Spatial distribution of ‘unsustainable’ mentions ####
+#### Figure 5 - Spatial distribution of ‘unsustainable’ mentions ####
 #### Plot species maps per département ####
 # Data is already processed in `df_all_species_data`, now join with `departements`
 citations_by_species_massif <- citations_by_species_dpt %>%
@@ -2168,30 +2168,12 @@ plot_species_map_massif <- function(species_name) {
 species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Filipendula ulmaria") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_dpt 
 
-species_maps_dpt2 <-   plot_species_map_dpt("Filipendula ulmaria") + 
-  plot_species_map_dpt("Artemisia umbelliformis") + 
-  plot_species_map_dpt("Arnica montana") + 
-  plot_species_map_dpt("Allium ursinum") + 
-  plot_species_map_dpt("Vaccinium myrtillus") +  
-  plot_species_map_dpt("Hypericum nummularium") + 
-  plot_annotation(tag_levels = "a") + 
-  plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
-species_maps_dpt2
-
 # plot_zoom_png?width=905&height=697
-png("plots/Figure_4_species_maps_dpt.png", 
+png("plots/Figure_5_species_maps_dpt.png", 
     width = 2715,
     height = 2091,
     res = 300)
 species_maps_dpt
-dev.off()
-
-# plot_zoom_png?width=1333&height=844
-png("plots/Figure_4_species_maps_dpt2.png", 
-    width = 3999,
-    height = 2532,
-    res = 300)
-species_maps_dpt2
 dev.off()
 
 species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Filipendula ulmaria") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
@@ -2387,7 +2369,7 @@ summary_species
 write.csv(summary_species, "processed_data/AppendixK_MOR_calculations.csv", row.names=F)
 
 ####_________####
-#### Figure 5 - Are the assumptions of the respondents concerning species regulations correct ? #####
+#### Figure 6 - Are the assumptions of the respondents concerning species regulations correct ? #####
 BDC_STATUTS_17 <- read_csv("raw_data/BDC-Statuts-v17/BDC_STATUTS_17.csv") %>%
   # filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL", "REGLSO")) %>% 
   filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL")) %>% 
@@ -2465,6 +2447,13 @@ data_regl_prot_join <- rbind(bdc_dpt, bdc_region) %>%
     )
   ) %>%
   filter(!is.na(SPECIES_species_regulation))%>%
+  mutate(
+    SPECIES_species_regulation = case_when(
+      str_detect(tolower(SPECIES_species_regulation), "yes") ~ "Yes",
+      str_detect(tolower(SPECIES_species_regulation), "no") ~ "No",
+      TRUE ~ SPECIES_species_regulation
+    )
+  ) %>%
   unique() %>%
   left_join(BDC_STATUTS_17_summar)
 
@@ -2588,14 +2577,14 @@ regulation_plot <- count_regul_answers + pct_correct_regul + plot_annotation(tag
 regulation_plot
 
 # plot_zoom_png?width=982&height=515
-png("plots/Figure_5_regulations.png", 
+png("plots/Figure_6_regulations.png", 
     width = 2946,     # pixels
     height = 1143,   # pixels
     res = 300)        # resolution in dpi
 regulation_plot
 dev.off()
 
-# Find if the species indicated as having a regulation when they don't are regulated elsewhere
+# Find if the species indicated as having a regulation when they don't, are regulated elsewhere
 df <- data_regl_prot_join %>%
   subset(SPECIES_species_regulation=="Yes" & statut_group=="No regulation/protection",
          select=c(SPECIES_species_regulation, statut_group, national_status)) %>%
