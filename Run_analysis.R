@@ -31,6 +31,9 @@ library(plotly)
 
 
 #### Import data ####
+#### /!\ MISSING DATA /!\  BDC_STATUTS_17.csv & TAXREFv17.txt need to be dowloaded from the French INPN website and placed in the raw_data folder
+# https://www.patrinat.fr/fr/page-temporaire-de-telechargement-des-referentiels-de-donnees-lies-linpn-7353
+
 raw_data <- read.csv("raw_data/results-survey676868_translated.csv")
 
 massifs <- read.csv("raw_data/massifs_cueillette.csv")
@@ -65,7 +68,7 @@ departements <- read_sf("raw_data/shape/departements_detail_paris.shp") %>%
   left_join(massifs, by="dpt")
 
 
-taxref <-  read.delim("raw_data/TAXREF_v17_2024/TAXREFv17.txt") %>%
+taxref <-  read.delim("raw_data/TAXREFv17.txt") %>%
   subset((GROUP1_INPN=="Trachéophytes") &
            (REGNE=="Plantae") &
            (CD_REF==CD_NOM) &
@@ -158,6 +161,11 @@ temp_dynamic <- ggplot(df_daily, aes(x = day, y = cum_n)) +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1))
 temp_dynamic
+
+
+if (!dir.exists("plots")) {
+  dir.create("plots", recursive = TRUE)
+}
 
 # plot_zoom_png?width=702&height=478
 png("plots/AppendixB_temporal_dynamic_survey.png", 
@@ -1705,7 +1713,15 @@ cat("Classification accuracy:", round(mean(pred == lda_data$SPECIES_sustainabili
 
 #### APPENDIX G - Variable contributions to DFA ####
 sorted_correlations
-write.csv(sorted_correlations, "processed_data/APPENDIXG_variables_contrib_DFA.csv")
+if (!dir.exists("processed_data")) {
+  dir.create("processed_data", recursive = TRUE)
+}
+
+write.csv(
+  sorted_correlations,
+  "processed_data/APPENDIXG_variables_contrib_DFA.csv",
+  row.names = FALSE
+)
 
 #### APPENDIX H - Perceived VS actual species abundance ####
 # Do respondents’ perceptions of rarity and abundance correspond to actual species abundance ?
@@ -2223,7 +2239,7 @@ write.csv(summary_species, "processed_data/AppendixK_MOR_calculations.csv", row.
 
 ####_________####
 #### Figure 6 - Are the assumptions of the respondents concerning species regulations correct ? #####
-BDC_STATUTS_17 <- read_csv("raw_data/BDC-Statuts-v17/BDC_STATUTS_17.csv") %>%
+BDC_STATUTS_17 <- read_csv("raw_data/BDC_STATUTS_17.csv") %>%
   # filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL", "REGLSO")) %>% 
   filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL")) %>% 
   mutate(
