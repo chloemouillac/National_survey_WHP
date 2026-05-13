@@ -34,7 +34,7 @@ library(plotly)
 #### /!\ MISSING DATA /!\  BDC_STATUTS_17.csv & TAXREFv17.txt need to be dowloaded from the French INPN website and placed in the raw_data folder
 # https://www.patrinat.fr/fr/page-temporaire-de-telechargement-des-referentiels-de-donnees-lies-linpn-7353
 
-raw_data <- read.csv("raw_data/results-survey676868_translated.csv")
+raw_data <- read.csv("raw_data/results-survey676868_translated_anonymised.csv")
 
 massifs <- read.csv("raw_data/massifs_cueillette.csv")
 
@@ -665,7 +665,7 @@ all_data <- df_profile_renamed %>%
   dplyr::select(-dpt_name, -geometry) %>%
   
   # Convert to factors (excluding key cols)
-  mutate(across(-c(id, SPECIES_name, CD_REF, C, S, R, sp_relative_area, sp_area, sp_area_FR), as.factor))
+  mutate(across(-c(id, SPECIES_name, CD_REF, sp_relative_area, sp_area, sp_area_FR), as.factor))
 
 
 
@@ -703,7 +703,7 @@ all_data <- all_data %>%
 
 ##### Age ####
 age <- ggplot(all_data %>% 
-         select(id, PROFILE_age) %>% 
+         dplyr::select(id, PROFILE_age) %>% 
          unique() %>% 
          mutate(PROFILE_age = ifelse(is.na(PROFILE_age),
                                      "Prefer not to answer",
@@ -728,7 +728,7 @@ dev.off()
 
 ##### Gender ####
 gender <- ggplot(all_data %>% 
-         select(id, PROFILE_gender) %>% 
+         dplyr::select(id, PROFILE_gender) %>% 
          unique() %>% 
          mutate(PROFILE_gender = ifelse(is.na(PROFILE_gender),
                                         "Prefer not to answer",
@@ -750,7 +750,7 @@ dev.off()
 
 ##### Socio-professional category ####
 df_sociopro <- all_data %>% 
-  select(id, PROFILE_socio_pro_category) %>% 
+  dplyr::select(id, PROFILE_socio_pro_category) %>% 
   unique() %>% 
   mutate(PROFILE_socio_pro_category = ifelse(is.na(PROFILE_socio_pro_category),
                                              "Prefer not to answer",
@@ -784,7 +784,7 @@ dev.off()
 
 ##### Harvester status ####
 df_harvstatus <- all_data %>% 
-  select(id, PROFILE_harvester_status) %>% 
+  dplyr::select(id, PROFILE_harvester_status) %>% 
   unique() %>% 
   mutate(PROFILE_harvester_status = ifelse(is.na(PROFILE_harvester_status),
                                            "Prefer not to answer",
@@ -815,7 +815,7 @@ dev.off()
 
 ##### Affiliated organisation type ####
 df_affilorga <- all_data %>% 
-  select(id, PROFILE_affiliated_organisation_type) %>% 
+  dplyr::select(id, PROFILE_affiliated_organisation_type) %>% 
   unique() %>% 
   mutate(PROFILE_affiliated_organisation_type = ifelse(is.na(PROFILE_affiliated_organisation_type),
                                                     "Prefer not to answer",
@@ -921,15 +921,15 @@ unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & is.na(first_paper)
 
 
 ####_________####
-#### Number of AFC/Simples answers ####
-rattach_gp_cueill <- all_data %>%
-  dplyr::select(id, PROFILE_name_affiliated_organisation) %>%
-  unique() %>%
-  na.omit()
-
-ggplot(rattach_gp_cueill, aes(x=PROFILE_name_affiliated_organisation)) +
-  geom_bar() +
-  theme(axis.text.x=element_text(angle=90, hjust=1))
+# #### Number of AFC/Simples answers ####
+# rattach_gp_cueill <- all_data %>%
+#   dplyr::select(id, PROFILE_name_affiliated_organisation) %>%
+#   unique() %>%
+#   na.omit()
+# 
+# ggplot(rattach_gp_cueill, aes(x=PROFILE_name_affiliated_organisation)) +
+#   geom_bar() +
+#   theme(axis.text.x=element_text(angle=90, hjust=1))
 
 
 ####_________####
@@ -1295,7 +1295,7 @@ ind_coords_particip <- bind_cols(ref_table_particip,
 head(ind_coords_particip)
 
 ##### Perform hierarchical clustering based on MCA coordinates ###
-res.hcpc.particip <- HCPC(res.mca.particip, nb.clust = -1, graph = FALSE) 
+res.hcpc.particip <- HCPC(res.mca.particip, nb.clust = 3, graph = FALSE) 
 print(res.hcpc.particip$desc.var)
 
 # Recode cluster numbers
@@ -1401,7 +1401,7 @@ res.hcpc.particip$desc.var
 ##### Compare the amount of men ####
 # Reattach cluster to original participant profile
 cluster_gender <- all_data_ACM_participant_profile %>%
-  select(id, PROFILE_gender) %>%
+  dplyr::select(id, PROFILE_gender) %>%
   left_join(
     res.hcpc.particip$data.clust %>%
       mutate(row_name = rownames(.)) %>%
