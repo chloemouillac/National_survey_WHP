@@ -2,3 +2,15 @@
 .Rhistory
 .RData
 .Ruserdata
+
+renv/library/
+renv/staging/
+
+plots/*
+processed_data/*
+!plots/.gitkeep
+!processed_data/.gitkeep
+
+raw_data/BDC_STATUTS_17.csv
+raw_data/TAXREFv17.txt
+
