@@ -65,26 +65,25 @@ departements <- read_sf("raw_data/shape/departements_detail_paris.shp") %>%
     dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"),
     region_simple = iconv(region_simple, to = "ASCII//TRANSLIT")
   ) %>%
-  left_join(massifs, by="dpt")
+  left_join(massifs, by = "dpt")
 
 
 taxref <-  read.delim("raw_data/TAXREFv17.txt") %>%
-  subset((GROUP1_INPN=="Trachéophytes") &
-           (REGNE=="Plantae") &
-           (CD_REF==CD_NOM) &
-           (RANG=="ES"),
-         select=c(CD_REF, CD_NOM, LB_NOM, GROUP1_INPN, REGNE)) %>%
+  subset((GROUP1_INPN = =  "Trachéophytes") &
+  (REGNE = =  "Plantae") &
+  (CD_REF = =  CD_NOM) &
+  (RANG = =  "ES"),
+  select = c(CD_REF, CD_NOM, LB_NOM, GROUP1_INPN, REGNE)) %>%
   unique()
 
 all_rarity <-  read.csv("raw_data/OpenObs+GBIF_RARITY_20km.csv") %>%
   dplyr::select(CD_REF, dpt_area, sp_area, dpt_name, sp_relative_area) %>%
   mutate(dpt_simple =  str_replace_all(dpt_name, "[-']", " "),
-         dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"))
+  dpt_simple = iconv(dpt_simple, to = "ASCII//TRANSLIT"))
 
-all_rarity <- all_rarity %>% left_join(all_rarity %>% 
-                                         group_by(CD_REF) %>% 
-                                         # add a column with total species area in France
-                                         summarise(sp_area_FR=sum(sp_area)))
+all_rarity <- all_rarity %>% left_join(all_rarity %>% group_by(CD_REF) %>% 
+# add a column with total species area in France
+summarise(sp_area_FR = sum(sp_area)))
   
 
 raunkieaer <- read.csv("raw_data/type_bio.csv") %>%
@@ -96,7 +95,7 @@ vascular <- read.csv("raw_data/list_vascular_v17.csv") %>%
   mutate(
     native = ifelse(FR %in% c("I", "M", "J"), "non-native", "native")
   ) %>%
-  dplyr::select(-FR) 
+  dplyr::select(-FR)
 
 # P - Widespread native/undetermined: Indigenous or of uncertain origin, widely present
 # S - Subendemic: Mostly native to France with limited distribution elsewhere
@@ -143,9 +142,9 @@ temp_dynamic <- ggplot(df_daily, aes(x = day, y = cum_n)) +
   
   # Relaunch labels above curve
   annotate("text", x = relaunch1, y = 800,
-           label = "Relaunch 1", angle = 90, vjust = -0.5, size = 3, colour = "red") +
+  label = "Relaunch 1", angle = 90, vjust = -0.5, size = 3, colour = "red") +
   annotate("text", x = relaunch2, y = 800,
-           label = "Relaunch 2", angle = 90, vjust = -0.5, size = 3, colour = "red") +
+  label = "Relaunch 2", angle = 90, vjust = -0.5, size = 3, colour = "red") +
   
   scale_x_date(
     limits = c(min_day, max_day),
@@ -167,7 +166,7 @@ if (!dir.exists("plots")) {
   dir.create("plots", recursive = TRUE)
 }
 
-# plot_zoom_png?width=702&height=478
+# plot_zoom_png?width = 702&height = 478
 png("plots/AppendixB_temporal_dynamic_survey.png", 
     width = 2106,
     height = 1434,
@@ -180,7 +179,7 @@ dev.off()
 #### APPENDIX D - Harvesting areas ####
 departements_simpl_PARIS <- departements %>%
   # Create a grouping variable: "IDF" for Ile-de-France, and the original "code" for others
-  mutate(group = if_else(region == "Ile-de-France", "IDF", code)) %>%
+  mutate(group = if_else(region = =  "Ile-de-France", "IDF", code)) %>%
   # Group the data by the new "group" variable
   group_by(group) %>%
   # Summarise the data by fusing geometries and assigning new values for Ile-de-France
@@ -191,10 +190,10 @@ departements_simpl_PARIS <- departements %>%
     # Assign new values for the grouped rows
     # The 'first' function is used to pick the first value in each group,
     # which is the original department code for all non-IDF regions
-    code = first(if_else(group == "IDF", "IDF", code)),
-    dpt = first(if_else(group == "IDF", "Ile-de-France", dpt)),
-    dpt_simple = first(if_else(group == "IDF", "Ile de France", dpt_simple)),
-    region_simple = first(if_else(group == "IDF", "Ile de France", region_simple)),
+    code = first(if_else(group = =  "IDF", "IDF", code)),
+    dpt = first(if_else(group = =  "IDF", "Ile-de-France", dpt)),
+    dpt_simple = first(if_else(group = =  "IDF", "Ile de France", dpt_simple)),
+    region_simple = first(if_else(group = =  "IDF", "Ile de France", region_simple)),
     massif = first(massif)
   ) %>%
   # Remove the "group" variable created for the aggregation
@@ -234,8 +233,8 @@ plot_harvest_areas <- ggplot() +
   geom_sf(data = departements_simpl_PARIS, aes(fill = massif), colour = "white", alpha = 0.8) +
   geom_sf(data = harvesting_area_boundaries, fill = NA, colour = "black", size = 1) +
   geom_label(data = centroids, aes(label = harvesting_area_letters, geometry = geometry),
-             stat = "sf_coordinates", size = 4, fontface = "bold", color = "black",
-             fill = "white", label.size = 0.3) +
+  stat = "sf_coordinates", size = 4, fontface = "bold", color = "black",
+  fill = "white", label.size = 0.3) +
   scale_fill_manual(
     name = "Harvesting areas",
     values = massif_colors,
@@ -253,7 +252,7 @@ plot_harvest_areas <- ggplot() +
 plot_harvest_areas
 
 
-# plot_zoom_png?width=865&height=615
+# plot_zoom_png?width = 865&height = 615
 png("plots/AppendixD_harvest_areas.png", 
     width = 2595,     # pixels
     height = 1845,   # pixels
@@ -279,19 +278,19 @@ process_data_helper_1 <- function(data, pattern_one, pattern_two, value_col_name
       values_to = "value",
       values_drop_na = TRUE) %>%
     
-    filter(value == "Yes") %>%
+    filter(value = =  "Yes") %>%
     
     mutate(
-      group = str_extract(column_name, "(?<=^G)\\d+"),
-      qcode = as.numeric(str_extract(column_name, "(?<=Q0{3,4})\\d+")),
+      group = str_extract(column_name, "(?< = ^G)\\d+"),
+      qcode = as.numeric(str_extract(column_name, "(?< = Q0{3,4})\\d+")),
       type = case_when(
-        group %in% c("3", "4") & qcode == pattern_one ~ value_col_name,
-        !(group %in% c("3", "4")) & qcode == pattern_two ~ value_col_name)) %>%
+        group %in% c("3", "4") & qcode = =  pattern_one ~ value_col_name,
+        !(group %in% c("3", "4")) & qcode = =  pattern_two ~ value_col_name)) %>%
     
-    filter(type == value_col_name) %>%
+    filter(type = =  value_col_name) %>%
     
     mutate(
-      !!sym(value_col_name) := str_to_sentence(str_replace_all(str_remove(column_name, ".*____"), "_", " "))
+      !!sym(value_col_name) : =  str_to_sentence(str_replace_all(str_remove(column_name, ".*____"), "_", " "))
     ) %>%
     dplyr::select(id, group, !!sym(value_col_name))
 }
@@ -310,16 +309,16 @@ process_data_helper_2 <- function(data, pattern_one, pattern_two, value_col_name
     filter(!is.na(value)) %>%
     
     mutate(
-      group = str_extract(column_name, "(?<=^G)\\d+"),
-      qcode = as.numeric(str_extract(column_name, "(?<=Q0{3,4})\\d+")),
+      group = str_extract(column_name, "(?< = ^G)\\d+"),
+      qcode = as.numeric(str_extract(column_name, "(?< = Q0{3,4})\\d+")),
       question = sub(
         "^G\\d+Q\\d+(_SQ\\d+|__other)?_*", # Regex to match and remove the code and optional '_other'
         "",                     # Replace with an empty string
         column_name), 
       
       type = case_when(
-        group %in% c("3", "4") & qcode == pattern_one ~ value_col_name,
-        !(group %in% c("3", "4")) & qcode == pattern_two ~ value_col_name),
+        group %in% c("3", "4") & qcode = =  pattern_one ~ value_col_name,
+        !(group %in% c("3", "4")) & qcode = =  pattern_two ~ value_col_name),
       
       type = ifelse(!is.na(type) & grepl("Other", column_name), paste0(type, "_other"), type),
       
@@ -373,39 +372,39 @@ process_all_species_data <- function(data) {
     # Classify values by type (species, presence, etendue_cueill, durability)
     mutate(
       type = case_when(
-        qcode == "1" ~ "name",
-        group %in% c("3", "4") & qcode == "2" ~ "dpt",
-        !(group %in% c("3", "4")) & qcode == "4" ~ "dpt",
-        group %in% c("3", "4") & qcode == "4" ~ "presence",
-        !(group %in% c("3", "4")) & qcode == "6" ~ "presence",
-        group %in% c("3", "4") & qcode == "5" ~ "harv_spread",
-        !(group %in% c("3", "4")) & qcode == "7" ~ "harv_spread",
-        group %in% c("3", "4") & qcode == "10" ~ "start_obs",
-        !(group %in% c("3", "4")) & qcode == "12" ~ "start_obs",
-        group %in% c("3", "4") & qcode == "11" ~ "state_resource",
-        !(group %in% c("3", "4")) & qcode == "13" ~ "state_resource",
-        group %in% c("3", "4") & qcode == "12" ~ "harv_variation",
-        !(group %in% c("3", "4")) & qcode == "14" ~ "harv_variation",
-        group %in% c("3", "4") & qcode == "13" ~ "harv_intensity",
-        !(group %in% c("3", "4")) & qcode == "15" ~ "harv_intensity",
-        group %in% c("3", "4") & qcode == "18" ~ "market_trend",
-        !(group %in% c("3", "4")) & qcode == "20" ~ "market_trend",
-        group %in% c("3", "4") & qcode == "19" ~ "market_trend_risk",
-        !(group %in% c("3", "4")) & qcode == "21" ~ "market_trend_risk",
-        group %in% c("3", "4") & qcode == "20" ~ "species_regulation",
-        !(group %in% c("3", "4")) & qcode == "22" ~ "species_regulation",
-        group %in% c("3", "4") & qcode == "21" ~ "regulation_adapted",
-        !(group %in% c("3", "4")) & qcode == "23" ~ "regulation_adapted")
+        qcode = =  "1" ~ "name",
+        group %in% c("3", "4") & qcode = =  "2" ~ "dpt",
+        !(group %in% c("3", "4")) & qcode = =  "4" ~ "dpt",
+        group %in% c("3", "4") & qcode = =  "4" ~ "presence",
+        !(group %in% c("3", "4")) & qcode = =  "6" ~ "presence",
+        group %in% c("3", "4") & qcode = =  "5" ~ "harv_spread",
+        !(group %in% c("3", "4")) & qcode = =  "7" ~ "harv_spread",
+        group %in% c("3", "4") & qcode = =  "10" ~ "start_obs",
+        !(group %in% c("3", "4")) & qcode = =  "12" ~ "start_obs",
+        group %in% c("3", "4") & qcode = =  "11" ~ "state_resource",
+        !(group %in% c("3", "4")) & qcode = =  "13" ~ "state_resource",
+        group %in% c("3", "4") & qcode = =  "12" ~ "harv_variation",
+        !(group %in% c("3", "4")) & qcode = =  "14" ~ "harv_variation",
+        group %in% c("3", "4") & qcode = =  "13" ~ "harv_intensity",
+        !(group %in% c("3", "4")) & qcode = =  "15" ~ "harv_intensity",
+        group %in% c("3", "4") & qcode = =  "18" ~ "market_trend",
+        !(group %in% c("3", "4")) & qcode = =  "20" ~ "market_trend",
+        group %in% c("3", "4") & qcode = =  "19" ~ "market_trend_risk",
+        !(group %in% c("3", "4")) & qcode = =  "21" ~ "market_trend_risk",
+        group %in% c("3", "4") & qcode = =  "20" ~ "species_regulation",
+        !(group %in% c("3", "4")) & qcode = =  "22" ~ "species_regulation",
+        group %in% c("3", "4") & qcode = =  "21" ~ "regulation_adapted",
+        !(group %in% c("3", "4")) & qcode = =  "23" ~ "regulation_adapted")
     ) %>%
     
     # # Determine durability status based on group
     dplyr::group_by(id, group) %>%
     dplyr::mutate(
-      rep_durable = dplyr::first(value[qcode == "2"]),
+      rep_durable = dplyr::first(value[qcode = =  "2"]),
       sustainability = dplyr::case_when(
-        group == "3" ~ "Sustainable",
-        group == "4" ~ "Unsustainable",
-        rep_durable == "Yes" ~ "Sustainable",
+        group = =  "3" ~ "Sustainable",
+        group = =  "4" ~ "Unsustainable",
+        rep_durable = =  "Yes" ~ "Sustainable",
         TRUE ~ "Unsustainable"
       )
     ) %>%
@@ -433,7 +432,7 @@ process_all_species_data <- function(data) {
     unnest(everything()) %>%
     
     # Filter out empty species
-    filter(name != "") %>%
+    filter(name ! =  "") %>%
     
     # Keep only one record per ID, species, and group to avoid double-counting
     unique() %>%
@@ -469,13 +468,13 @@ process_all_species_data <- function(data) {
     left_join(df_harv_type, by = c("id", "group")) %>%
     left_join(df_company_type, by = c("id", "group")) %>%
     left_join(df_unadapted_regulation_cause, by = c("id", "group")) %>%
-    filter(name != "")
+    filter(name ! =  "")
   
   
   # Some participants have wrongly informed that they didn't know of any species harvested unsustainably, so we'll correct this:
   for (i in df_final$id) {
-    if ("Unsustainable" %in% df_final$sustainability[df_final$id==i]) {
-      df_final$known_unsustainable[df_final$id==i] = "Yes"
+    if ("Unsustainable" %in% df_final$sustainability[df_final$id = =  i]) {
+      df_final$known_unsustainable[df_final$id = =  i] = "Yes"
     }
   }
   
@@ -509,20 +508,20 @@ process_all_profile_data <- function(data) {
     ) %>%
     mutate(
       type = case_when(
-        qcode == "1" ~ "gender",
-        qcode == "2" ~ "age",
-        qcode == "4" ~ "evt_studies",
-        qcode == "6" ~ "harvester",
-        qcode == "7" ~ "harvesting_start",
-        qcode == "8" ~ "nb_harv_species",
-        qcode == "9" ~ "harvester_status",
-        qcode == "10" ~ "harvester_status_company",
-        qcode == "11" ~ "harv_group",
-        qcode == "12" ~ "name_harv_group",
-        qcode == "14" ~ "name_affiliated_organisation",
-        qcode == "15" ~ "job_in_affiliated_organisation",
-        qcode == "16" ~ "size_affiliated_organisation",
-        qcode == "17" ~ "nb_species_affiliated_organisation")
+        qcode = =  "1" ~ "gender",
+        qcode = =  "2" ~ "age",
+        qcode = =  "4" ~ "evt_studies",
+        qcode = =  "6" ~ "harvester",
+        qcode = =  "7" ~ "harvesting_start",
+        qcode = =  "8" ~ "nb_harv_species",
+        qcode = =  "9" ~ "harvester_status",
+        qcode = =  "10" ~ "harvester_status_company",
+        qcode = =  "11" ~ "harv_group",
+        qcode = =  "12" ~ "name_harv_group",
+        qcode = =  "14" ~ "name_affiliated_organisation",
+        qcode = =  "15" ~ "job_in_affiliated_organisation",
+        qcode = =  "16" ~ "size_affiliated_organisation",
+        qcode = =  "17" ~ "nb_species_affiliated_organisation")
     ) %>%
     
     filter(!is.na(type)) %>%
@@ -586,7 +585,7 @@ all_data <- df_profile_renamed %>%
       str_detect(SPECIES_harv_parts, "Underground") ~ "Underground part",
       TRUE ~ SPECIES_harv_parts
     ),
-    SPECIES_market_trend= dplyr::recode(SPECIES_market_trend, "Yes" = "Trend", "No" = "No trend"),
+    SPECIES_market_trend =  dplyr::recode(SPECIES_market_trend, "Yes" = "Trend", "No" = "No trend"),
     SPECIES_market_trend_risk = dplyr::recode(SPECIES_market_trend_risk, "Yes" = "Trend with risk", "No" = "Trend without risk"),
     PROFILE_harvester_status = case_when(
       str_detect(PROFILE_harvester_status, "leisure")  ~ "Recreational",
@@ -607,8 +606,8 @@ all_data <- df_profile_renamed %>%
   
   # Merge SPECIES_market_trend and SPECIES_market_trend_risk
   mutate(
-    SPECIES_market_trend = if_else(SPECIES_market_trend == "Trend", SPECIES_market_trend_risk, SPECIES_market_trend),
-    PROFILE_harvester_status = if_else(PROFILE_harvester == "Yes", PROFILE_harvester_status, "Non-harvester")
+    SPECIES_market_trend = if_else(SPECIES_market_trend = =  "Trend", SPECIES_market_trend_risk, SPECIES_market_trend),
+    PROFILE_harvester_status = if_else(PROFILE_harvester = =  "Yes", PROFILE_harvester_status, "Non-harvester")
   ) %>%
   dplyr::select(-c(SPECIES_market_trend_risk, PROFILE_harvester)) %>%
   
@@ -631,8 +630,8 @@ all_data <- df_profile_renamed %>%
     SPECIES_harv_parts %in% c("Leaves", "Buds", "Aerial part", "Seedlings") ~ "Aerial part",
     SPECIES_harv_parts %in% c("Flowers", "Fruits", "Seeds") ~ "Reproductive part",
     SPECIES_harv_parts %in% c("Bark", "Sap") ~ "Other",
-    SPECIES_harv_parts == "Whole plant" ~ "Whole plant",
-    SPECIES_harv_parts == "Underground part" ~ "Underground part")) %>%
+    SPECIES_harv_parts = =  "Whole plant" ~ "Whole plant",
+    SPECIES_harv_parts = =  "Underground part" ~ "Underground part")) %>%
   dplyr::select(-SPECIES_harv_parts) %>%
   unique() %>%
   
@@ -659,9 +658,9 @@ all_data <- df_profile_renamed %>%
   # Add taxref, Raunkiaer, species presence (cover %) per département, species status (native...)
   left_join(taxref, by = c("SPECIES_name" = "LB_NOM")) %>%
   left_join(raunkieaer, by = "CD_REF") %>%
-  left_join(all_rarity, by = join_by("CD_REF", "SPECIES_dpt"=="dpt_simple")) %>%
+  left_join(all_rarity, by = join_by("CD_REF", "SPECIES_dpt" = =  "dpt_simple")) %>%
   left_join(vascular) %>%
-  left_join(departements_simpl_PARIS %>% dplyr::select(dpt_simple, massif), join_by("SPECIES_dpt"=="dpt_simple")) %>%
+  left_join(departements_simpl_PARIS %>% dplyr::select(dpt_simple, massif), join_by("SPECIES_dpt" = =  "dpt_simple")) %>%
   dplyr::select(-dpt_name, -geometry) %>%
   
   # Convert to factors (excluding key cols)
@@ -675,15 +674,15 @@ corresp_species <- read.csv("raw_data/corresp_species.csv")
 all_data_corresp <- all_data %>%
   left_join(corresp_species %>% 
               dplyr::select(SPECIES_name, Comment),
-            by="SPECIES_name") 
+            by = "SPECIES_name") 
 
 number_non_plant <- all_data_corresp[all_data_corresp$Comment %in% c("Mushroom", "Alga", "Lichen"),]
 number_non_plant
 number_genus <- all_data_corresp[is.na(all_data_corresp$CD_REF) &
                                    !(all_data_corresp$Comment %in% c("Mushroom", "Alga", "Lichen")),]
 number_genus
-# non plants : 27/1117=2.4%
-# genus level : 41/1117=3.7%
+# non plants : 27/1117 = 2.4%
+# genus level : 41/1117 = 3.7%
 
 length(unique(number_non_plant$id)) # 25 non plant respondents
 length(unique(number_genus$id)) # 40 respondents giving species genera only
@@ -708,7 +707,7 @@ age <- ggplot(all_data %>%
          mutate(PROFILE_age = ifelse(is.na(PROFILE_age),
                                      "Prefer not to answer",
                                      as.character(PROFILE_age)),
-                PROFILE_age = factor(PROFILE_age, levels=
+                PROFILE_age = factor(PROFILE_age, levels = 
                                        c("Under 26 years", "26 to 35 years", "36 to 50 years", "Over 50 years", "Prefer not to answer"))),
        aes(x = PROFILE_age)) +
   geom_bar() +
@@ -717,7 +716,7 @@ age <- ggplot(all_data %>%
   theme_minimal(base_size = 13)
 
 
-#plot_zoom_png?width=686&height=446
+#plot_zoom_png?width = 686&height = 446
 png("plots/AppendixA_age.png", 
     width = 2058,     # pixels
     height = 1338,   # pixels
@@ -739,7 +738,7 @@ gender <- ggplot(all_data %>%
   xlab("Respondent gender") +
   theme_minimal(base_size = 13)
 
-# plot_zoom_png?width=607&height=557
+# plot_zoom_png?width = 607&height = 557
 png("plots/AppendixA_gender.png", 
     width = 1821,     # pixels
     height = 1671,   # pixels
@@ -770,10 +769,10 @@ socio_pro <- ggplot(df_sociopro, aes(x = PROFILE_socio_pro_category)) +
   ylab("Count") +
   xlab("Respondent socio-economic category") +
   theme_minimal(base_size = 13) +
-  theme(axis.text.x = element_text(angle = 70, hjust=1))
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
 
 
-# plot_zoom_png?width=767&height=557
+# plot_zoom_png?width = 767&height = 557
 png("plots/AppendixA_sociopro.png", 
     width = 2301,     # pixels
     height = 1671,   # pixels
@@ -804,7 +803,7 @@ harvstatus <- ggplot(df_harvstatus, aes(x = PROFILE_harvester_status)) +
   theme_minimal(base_size = 13)
 
 
-# plot_zoom_png?width=593&height=557
+# plot_zoom_png?width = 593&height = 557
 png("plots/AppendixA_harvstatus.png", 
     width = 1779,     # pixels
     height = 1000,   # pixels
@@ -836,7 +835,7 @@ affilorga <- ggplot(df_affilorga, aes(x = PROFILE_affiliated_organisation_type))
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-# plot_zoom_png?width=712&height=557
+# plot_zoom_png?width = 712&height = 557
 png("plots/AppendixA_affilorga.png", 
     width = 2136,     # pixels
     height = 1671,   # pixels
@@ -852,7 +851,7 @@ process_and_map_expertise <- function(data, shp) {
     dplyr::select(id, SPECIES_dpt) %>%
     group_by(SPECIES_dpt) %>%
     summarise(n_answers = n_distinct(id), .groups = "drop") %>%
-    full_join(shp, by = join_by(SPECIES_dpt==dpt_simple)) %>%
+    full_join(shp, by = join_by(SPECIES_dpt = =  dpt_simple)) %>%
     st_as_sf()
 }
 
@@ -875,7 +874,7 @@ dpt_plot <- ggplot(dpt_answers) +
 dpt_plot
 
 
-# plot_zoom_png?width=762&height=646
+# plot_zoom_png?width = 762&height = 646
 png("plots/AppendixA_dptcover.png", 
     width = 2286,     # pixels
     height = 1938,   # pixels
@@ -901,23 +900,23 @@ in_common <- in_common %>%
 
 
 # Nb of plants in Lescure list
-nrow(unique(subset(in_common, !is.na(CD_REF) & first_paper=="yes", select=CD_REF))) #692, excluding mushrooms/lichen/algue
+nrow(unique(subset(in_common, !is.na(CD_REF) & first_paper = =  "yes", select = CD_REF))) #692, excluding mushrooms/lichen/algue
 
 # Nb of plants cited in survey that were in the 1st paper
-nrow(unique(subset(in_common, in_survey=="yes" & first_paper=="yes", select=SPECIES_name)))
-unique(subset(in_common, in_survey=="yes" & first_paper=="yes", select=SPECIES_name))
+nrow(unique(subset(in_common, in_survey = =  "yes" & first_paper = =  "yes", select = SPECIES_name)))
+unique(subset(in_common, in_survey = =  "yes" & first_paper = =  "yes", select = SPECIES_name))
 # 109 species in common
-nrow(unique(subset(in_common, in_survey=="yes" &  !is.na(CD_REF), select=SPECIES_name)))
+nrow(unique(subset(in_common, in_survey = =  "yes" &  !is.na(CD_REF), select = SPECIES_name)))
 # 146 species cited (excluding mushrooms/lichen/algue and species identified at the genus level)
-# 109/146=74.7% of species cited here are present in the first list
-# 109/692=15.7% of species from the first list are cited here
+# 109/146 = 74.7% of species cited here are present in the first list
+# 109/692 = 15.7% of species from the first list are cited here
 
 # Nb of new plants
-nrow(unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & is.na(first_paper), select=SPECIES_name)))
-unique(subset(in_common, !is.na(CD_REF) & in_survey=="yes" & is.na(first_paper), select=SPECIES_name))
+nrow(unique(subset(in_common, !is.na(CD_REF) & in_survey = =  "yes" & is.na(first_paper), select = SPECIES_name)))
+unique(subset(in_common, !is.na(CD_REF) & in_survey = =  "yes" & is.na(first_paper), select = SPECIES_name))
 # 37 new plants
-unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & is.na(first_paper) 
-              & !Comment %in%  c("Mushroom", "Alga", "Lichen"), select=SPECIES_name)) # species identified to genus level, 15 "species"
+unique(subset(in_common, is.na(CD_REF) & in_survey = =  "yes" & is.na(first_paper) 
+              & !Comment %in%  c("Mushroom", "Alga", "Lichen"), select = SPECIES_name)) # species identified to genus level, 15 "species"
 
 
 ####_________####
@@ -927,9 +926,9 @@ unique(subset(in_common, is.na(CD_REF) & in_survey=="yes" & is.na(first_paper)
 #   unique() %>%
 #   na.omit()
 # 
-# ggplot(rattach_gp_cueill, aes(x=PROFILE_name_affiliated_organisation)) +
+# ggplot(rattach_gp_cueill, aes(x = PROFILE_name_affiliated_organisation)) +
 #   geom_bar() +
-#   theme(axis.text.x=element_text(angle=90, hjust=1))
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
 ####_________####
@@ -954,10 +953,10 @@ all_cited <- ggplot(df_species, aes(x = fct_reorder(SPECIES_name, -citations), y
     x = "",
     y = "Number of mentions") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 70, face="italic", hjust = 1))
+  theme(axis.text.x = element_text(angle = 70, face = "italic", hjust = 1))
 all_cited
 
-# plot_zoom_png?width=1000&height=611
+# plot_zoom_png?width = 1000&height = 611
 png("plots/AppendixE_all_cited.png", 
     width = 2000,     # pixels
     height = 1222,   # pixels
@@ -984,7 +983,7 @@ plot_cumulative_species <- function(data) {
   
   # Cutoffs at 50%, 75%, 95%
   cutoffs <- c(50, 80, 95)
-  cutoff_species <- sapply(cutoffs, function(c) min(df_cum$rank_species[df_cum$cum_percent >= c]))
+  cutoff_species <- sapply(cutoffs, function(c) min(df_cum$rank_species[df_cum$cum_percent > =  c]))
   cutoff_df <- data.frame(cutoff = cutoffs, species = cutoff_species)
   
   # Knee detection (returns index of cutoff species)
@@ -1039,11 +1038,11 @@ plot_cumulative_species(all_data)
 
 # Percentage of species with 1 mention :
 sp_mentions <- all_data %>% group_by(CD_REF, SPECIES_name) %>%
-  summarise(n_mentions=n())
+  summarise(n_mentions = n())
 # Allium ursinum has 101 mentions
-nrow(sp_mentions %>% filter(n_mentions==1))
+nrow(sp_mentions %>% filter(n_mentions = =  1))
 nrow(sp_mentions)
-# 62/145=42.7% of species with only one mention
+# 62/145 = 42.7% of species with only one mention
 
 
 ####_________####
@@ -1074,7 +1073,7 @@ plot_sustainability_ratio <- function(data, n = NULL,
     group_by(SPECIES_name, choix_type_bio) %>%
     mutate(
       total_citations = sum(n),
-      ratio_unsustainable = sum(n[SPECIES_sustainability == "Unsustainable"], na.rm = TRUE) / sum(n)
+      ratio_unsustainable = sum(n[SPECIES_sustainability = =  "Unsustainable"], na.rm = TRUE) / sum(n)
     ) %>%
     summarise(
       ratio_unsustainable = unique(ratio_unsustainable),
@@ -1085,16 +1084,16 @@ plot_sustainability_ratio <- function(data, n = NULL,
   
   # Apply filtering if requested
   if (!is.null(min_ratio)) {
-    df_summary <- df_summary %>% filter(ratio_unsustainable >= min_ratio)
+    df_summary <- df_summary %>% filter(ratio_unsustainable > =  min_ratio)
   }
   if (!is.null(max_ratio)) {
-    df_summary <- df_summary %>% filter(ratio_unsustainable <= max_ratio)
+    df_summary <- df_summary %>% filter(ratio_unsustainable < =  max_ratio)
   }
   if (!is.null(min_citations)) {
-    df_summary <- df_summary %>% filter(total_citations >= min_citations)
+    df_summary <- df_summary %>% filter(total_citations > =  min_citations)
   }
   if (!is.null(max_citations)) {
-    df_summary <- df_summary %>% filter(total_citations <= max_citations)
+    df_summary <- df_summary %>% filter(total_citations < =  max_citations)
   }
   
   # Keep ordering for plot
@@ -1133,7 +1132,7 @@ plot_sustainability_ratio <- function(data, n = NULL,
 plot_sustainability_ratio(all_data %>% filter(!is.na(SPECIES_name)), n = 20)
 
 
-# plot_zoom_png?width=786&height=600
+# plot_zoom_png?width = 786&height = 600
 png("plots/Figure_2_durability_ratio.png", 
     width = 2358,     # pixels
     height = 1800,   # pixels
@@ -1151,13 +1150,13 @@ summary_unsustainable_species <- df_all_species_data %>%
     values_fill = NA  # fill missing combinations with 0
   ) %>%
   group_by(name) %>%
-  summarise(Unsustainable = sum(Unsustainable, na.rm=T),
-            Sustainable = sum(Sustainable, na.rm=T),
+  summarise(Unsustainable = sum(Unsustainable, na.rm = T),
+            Sustainable = sum(Sustainable, na.rm = T),
             Ratio = round(100*Unsustainable/(Unsustainable+Sustainable), 2), 
             .groups = "drop")
 
 total_ratio_unsustainable <- summary_unsustainable_species %>%
-  summarise(mean_ratio=mean(Ratio, na.rm=T))
+  summarise(mean_ratio = mean(Ratio, na.rm = T))
 total_ratio_unsustainable
 
 percent_unsustainable <- summary_unsustainable_species %>%
@@ -1168,9 +1167,9 @@ percent_unsustainable # 36% of the species were, on average, perceived as being 
 #### Figure 3 - Rare species sustainability issues #####
 citations_by_species_dpt <- df_all_species_data %>%
   dplyr::select(id, name, sustainability, dpt) %>% 
-  filter(!is.na(dpt) & dpt != "") %>%
+  filter(!is.na(dpt) & dpt ! =  "") %>%
   unique() %>%
-  filter(!is.na(dpt) & dpt != "") %>%
+  filter(!is.na(dpt) & dpt ! =  "") %>%
   group_by(dpt, name, sustainability) %>%
   summarise(n = n(), .groups = "drop") %>%
   pivot_wider(
@@ -1185,14 +1184,14 @@ citations_by_species_dpt <- df_all_species_data %>%
 # Prepare datasets
 data_rarity_plot <- all_data %>% select(CD_REF, sp_area_FR) %>%
   unique() %>%
-  mutate(in_survey="yes") %>%
+  mutate(in_survey = "yes") %>%
   full_join(all_rarity %>% select(CD_REF, sp_area_FR) %>%
-              unique() %>% mutate(in_survey ="no")) %>% # want to keep all species from all_rarity
+              unique() %>% mutate(in_survey  = "no")) %>% # want to keep all species from all_rarity
   na.omit()
 
-quantiles_all <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="no"], 
+quantiles_all <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey = =  "no"], 
                           probs = c(0.25, 0.5, 0.75))
-quantiles_survey <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey=="yes"], 
+quantiles_survey <- quantile(data_rarity_plot$sp_area_FR[data_rarity_plot$in_survey = =  "yes"], 
                              probs = c(0.25, 0.5, 0.75))
 
 France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_area)) %>% 
@@ -1248,19 +1247,19 @@ France <- all_rarity %>% group_by(dpt_name) %>% summarise(dpt_area = max(dpt_are
 
 plot_sustainability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
                         filter(relative_sp_area_FR < 20 &
-                                 native=="native"), n = NULL,
-                      min_ratio=0, min_citations=2, max_citations=7) # there are no species under 50% unsustainable ratio !
-# max citations=7 because the 20 most cited species are cited minimum 8 times (Artemisia genipi)
+                              native = =  "native"), n = NULL,
+                      min_ratio = 0, min_citations = 2, max_citations = 7) # there are no species under 50% unsustainable ratio !
+# max citations = 7 because the 20 most cited species are cited minimum 8 times (Artemisia genipi)
 
-# plot_zoom_png?width=786&height=416
+# plot_zoom_png?width = 786&height = 416
 png("plots/Figure_3_rare_species_20pct.png", 
     width = 2358,
     height = 1248,
     res = 300)
 plot_sustainability_ratio(all_data %>% mutate(relative_sp_area_FR = 100*sp_area_FR/France) %>%
                         filter(relative_sp_area_FR < 20 &
-                                 native=="native"), n = NULL,
-                      min_ratio=0.1, min_citations=2, max_citations=7)
+                              native = =  "native"), n = NULL,
+                      min_ratio = 0.1, min_citations = 2, max_citations = 7)
 dev.off()
 
 
@@ -1291,7 +1290,7 @@ plotellipses(res.mca.particip)
 
 ##### Extract coordinates for each individual ###
 ind_coords_particip <- bind_cols(ref_table_particip, 
-                                 as.data.frame(res.mca.particip$ind$coord))
+                                as.data.frame(res.mca.particip$ind$coord))
 head(ind_coords_particip)
 
 ##### Perform hierarchical clustering based on MCA coordinates ###
@@ -1300,9 +1299,9 @@ print(res.hcpc.particip$desc.var)
 
 # Recode cluster numbers
 res.hcpc.particip$data.clust$clust <- recode(res.hcpc.particip$data.clust$clust,
-                                           `1` = "Non-harvesting_professionals",
-                                           `2` = "Recreational_harvesters",
-                                           `3` = "Professional_harvesters") %>%
+                                          `1` = "Non-harvesting_professionals",
+                                          `2` = "Recreational_harvesters",
+                                          `3` = "Professional_harvesters") %>%
   factor(levels = c("Professional_harvesters",
                     "Recreational_harvesters",
                     "Non-harvesting_professionals"))
@@ -1388,7 +1387,7 @@ plot_MCA_with_vars <- plot_MCA_particip +
 plot_MCA_with_vars
 
 
-# plot_zoom_png?width=937&height=634
+# plot_zoom_png?width = 937&height = 634
 png("plots/AppendixF_profile_MCA.png", 
     width = 2811,     # pixels
     height = 1902,   # pixels
@@ -1427,9 +1426,9 @@ dist_matrix <- dist(res.mca.particip$ind$coord)
 # Get the cluster assignments from the HCPC result
 # Convert the cluster factor to a numeric vector for compatibility
 cluster_assignments_numeric <- recode(res.hcpc.particip$data.clust$clust,
-                                             "Non-harvesting_professionals" = 3,
-                                             "Recreational_harvesters" = 2,
-                                             "Professional_harvesters" = 1) %>%
+                                      "Non-harvesting_professionals" = 3,
+                                      "Recreational_harvesters" = 2,
+                                      "Professional_harvesters" = 1) %>%
   as.character() %>% as.numeric()
 
 # Compute the silhouette values with the numeric cluster assignments
@@ -1437,7 +1436,7 @@ sil_result <- silhouette(cluster_assignments_numeric, dist_matrix)
 plot(sil_result)
 
 
-# plot_zoom_png?width=793&height=838
+# plot_zoom_png?width = 793&height = 838
 png("plots/AppendixF_silhouette.png", 
     width = 2379,     # pixels
     height = 2514,   # pixels
@@ -1451,7 +1450,7 @@ dev.off()
 
 all_data_profile_clusters <- plot_data_particip %>%
   dplyr::select(row_name, Group) %>%
-  full_join(ref_table_particip, by="row_name") %>%
+  full_join(ref_table_particip, by = "row_name") %>%
   left_join(all_data) %>%
   dplyr::select(-row_name)
 
@@ -1463,7 +1462,7 @@ d <- all_data_profile_clusters %>%
 
 names(d) <- c("id", "species", "harvest_area", "sustainability", "respondent_profile")
 
-d$sustainability <- ifelse(d$sustainability == "Sustainable", 0, 1)
+d$sustainability <- ifelse(d$sustainability = =  "Sustainable", 0, 1)
 
 model1 <- glmer(sustainability ~ respondent_profile + (1|species),
                 data = d, family = binomial)
@@ -1515,7 +1514,7 @@ d2 <- all_data_profile_clusters %>%
 
 names(d2) <- c("id", "species", "harvest_area", "unsustainable_species_known", "respondent_profile")
 
-d2$unsustainable_species_known <- ifelse(d2$unsustainable_species_known == "Yes", 1, 0)
+d2$unsustainable_species_known <- ifelse(d2$unsustainable_species_known = =  "Yes", 1, 0)
 d2$respondent_profile <- as.factor(d2$respondent_profile)
 
 model3 <- glm(unsustainable_species_known ~ respondent_profile,
@@ -1547,8 +1546,8 @@ grouping_factor <- data_dfa_durabilite_sp$SPECIES_sustainability
 
 # --- Run DFA ---
 res.dfa <- discrimin(dudi.acm(active_vars, scannf = FALSE), 
-                     fac = grouping_factor, 
-                     scannf = FALSE)
+fac = grouping_factor, 
+scannf = FALSE)
 
 # --- Visualise Results ---
 plot_data <- data.frame(
@@ -1560,8 +1559,8 @@ DFA_distrib <- ggplot(plot_data, aes(x = score_dfa, fill = sustainability)) +
   geom_density(alpha = 0.8) +
   scale_fill_manual(values = c("Unsustainable" = "#D00F0F", "Sustainable" = "#64A251")) +
   labs(x = "Discriminant Axis 1",
-       y = "Density",
-       fill = "Sustainability perception") +
+  y = "Density",
+  fill = "Sustainability perception") +
   theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 12),
@@ -1630,8 +1629,8 @@ var_contrib <- ggplot(top_var_contrib, aes(x = reorder(Variable, Coefficient), y
   scale_fill_manual(values = c("Unsustainable" = "#D00F0F", "Sustainable" = "#64A251")) +
   geom_hline(yintercept = 0, color = "black") +
   labs(x = "",
-       y = "DFA Coefficient",
-       fill = "Sustainability perception") +
+  y = "DFA Coefficient",
+  fill = "Sustainability perception") +
 
   theme_minimal(base_size = 14) +
   
@@ -1654,9 +1653,9 @@ var_contrib
 # Extract legend from second plot
 var_contrib_legend <- var_contrib
 legend_grob <- get_legend(var_contrib_legend + 
-                       theme(legend.position = "bottom",
-                             legend.direction = "horizontal",
-                             legend.justification = "center"))
+theme(legend.position = "bottom",
+legend.direction = "horizontal",
+legend.justification = "center"))
 
 # Remove legend from plots
 DFA_distrib_nolegend <- DFA_distrib + theme(legend.position = "none")
@@ -1671,7 +1670,7 @@ combined_with_legend <- top_plots / wrap_elements(legend_grob) +
 
 
 
-# plot_zoom_png?width=941&height=451
+# plot_zoom_png?width = 941&height = 451
 png("plots/Figure_4_DFA_sustainability.png", 
     width = 2823,     # pixels
     height = 1353,   # pixels
@@ -1690,7 +1689,7 @@ group_stats <- plot_data %>%
 
 mean_diff <- diff(group_stats$mean_score)
 pooled_sd <- sqrt(((group_stats$sd_score[1]^2)*(group_stats$n[1]-1) +
-                     (group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
+(group_stats$sd_score[2]^2)*(group_stats$n[2]-1)) /
                     (sum(group_stats$n)-2))
 
 cat("Cohen's d (DS1 separation):", round(mean_diff / pooled_sd, 3), "\n")
@@ -1707,7 +1706,7 @@ pred <- predict(lda_fit)$class
 
 table(Predicted = pred, Actual = lda_data$SPECIES_sustainability) # confusion matrix
 
-cat("Classification accuracy:", round(mean(pred == lda_data$SPECIES_sustainability)*100, 1), "%\n")
+cat("Classification accuracy:", round(mean(pred = =  lda_data$SPECIES_sustainability)*100, 1), "%\n")
 # Classification accuracy: 90.9 %
 
 
@@ -1742,7 +1741,7 @@ ordre_presence <- c("Widely abundant", "Locally abundant", "Rare", "Extremely ra
 rarity$SPECIES_presence <- factor(rarity$SPECIES_presence, levels = ordre_presence)
 
 ##### Dunn's test for pairwise comparisons (because KW test is significant) ###
-rstatix::dunn_test(sp_relative_area ~ SPECIES_presence, p.adjust.method = "bonferroni", data=rarity)
+rstatix::dunn_test(sp_relative_area ~ SPECIES_presence, p.adjust.method = "bonferroni", data = rarity)
 
 ##### Estimates and CI ###
 # compute bootstrapped CI for each group
@@ -1777,7 +1776,7 @@ perceivedVSactual <- ggplot(rarity, aes(x = SPECIES_presence, y = sp_relative_ar
     labels = c("Sustainable" = "Sustainable", "Non durable" = "Unsustainable")
   ) + 
   stat_pvalue_manual(
-    rstatix::dunn_test(sp_relative_area ~ SPECIES_presence, p.adjust.method = "bonferroni", data=rarity),
+    rstatix::dunn_test(sp_relative_area ~ SPECIES_presence, p.adjust.method = "bonferroni", data = rarity),
     label = "p.adj.signif",
     y.position = 110, # adjust depending on your data range
     hide.ns = TRUE,
@@ -1793,7 +1792,7 @@ perceivedVSactual <- ggplot(rarity, aes(x = SPECIES_presence, y = sp_relative_ar
     "Abondante locale"       = "Locally abundant",
     "Rare" = "Rare",
     "Extremement rare"     = "Extremely rare",
-    "JNSP"= "IDK"
+    "JNSP" =  "IDK"
   )) +
   theme_minimal(base_size = 13) +
   theme(
@@ -1801,7 +1800,7 @@ perceivedVSactual <- ggplot(rarity, aes(x = SPECIES_presence, y = sp_relative_ar
     legend.position = "right"
   )
 
-# plot_zoom_png?width=750&height=487
+# plot_zoom_png?width = 750&height = 487
 png("plots/AppendixH_perceivedVSactual_abundance.png", 
     width = 2250,
     height = 1461,
@@ -1828,8 +1827,8 @@ data_dfa_durabilite_sp_bio <- all_data %>%
 
 # Regression
 glm_fit <- glm(SPECIES_sustainability ~ sp_relative_area + choix_type_bio,
-               data = data_dfa_durabilite_sp_bio,
-               family = binomial(link="logit"))
+data = data_dfa_durabilite_sp_bio,
+family = binomial(link = "logit"))
 summary(glm_fit)
 
 # Odds ratios and contributions
@@ -1893,11 +1892,11 @@ cat("95% CI:",
 #### Plot species maps per département ####
 # Data is already processed in `df_all_species_data`, now join with `departements`
 citations_by_species_massif <- citations_by_species_dpt %>%
-  right_join(departements_simpl_PARIS, join_by("dpt"=="dpt_simple")) %>%
+  right_join(departements_simpl_PARIS, join_by("dpt" = =  "dpt_simple")) %>%
   group_by(name, massif) %>%
-  summarise(Unsustainable=sum(Unsustainable),
-            Sustainable=sum(Sustainable), 
-            total_citations=sum(total_citations)) %>%
+  summarise(Unsustainable = sum(Unsustainable),
+            Sustainable = sum(Sustainable), 
+            total_citations = sum(total_citations)) %>%
   ungroup() %>%
   na.omit()
 
@@ -1916,7 +1915,7 @@ plot_species_map_generic <- function(
   filtered_data <- data %>%
     {
       if (!is.null(species_name)) {
-        filter(., name == species_name)
+        filter(., name = =  species_name)
       } else {
         .
       }
@@ -1965,7 +1964,7 @@ plot_species_map_generic <- function(
     theme(
       legend.title = element_text(size = 13),
       legend.text = element_text(size = 12),
-      plot.title = element_text(hjust = 0.5, size = 13, face="italic"),
+      plot.title = element_text(hjust = 0.5, size = 13, face = "italic"),
       plot.margin = margin(t = 30)
     )
   
@@ -2037,7 +2036,7 @@ plot_species_map_massif <- function(species_name) {
 species_maps_dpt <- plot_species_map_dpt("Allium ursinum") + plot_species_map_dpt("Filipendula ulmaria") + plot_species_map_dpt("Vaccinium myrtillus") +  plot_species_map_dpt("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_dpt 
 
-# plot_zoom_png?width=905&height=697
+# plot_zoom_png?width = 905&height = 697
 png("plots/Figure_5_species_maps_dpt.png", 
     width = 2715,
     height = 2091,
@@ -2048,7 +2047,7 @@ dev.off()
 species_maps_massif <- plot_species_map_massif("Allium ursinum") + plot_species_map_massif("Filipendula ulmaria") + plot_species_map_massif("Vaccinium myrtillus") +  plot_species_map_massif("Hypericum nummularium") + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = "right", legend.box.margin = margin(l = 50))
 species_maps_massif
 
-# # plot_zoom_png?width=905&height=697
+# # plot_zoom_png?width = 905&height = 697
 # png("plots/Figure_4_species_maps_massif.png", 
 #     width = 2715,
 #     height = 2091,
@@ -2064,9 +2063,9 @@ plot_map_France_dpt <- function() {
   plot_species_map_generic(
     spatial_data = departements_simpl_PARIS,
     data = citations_by_species_dpt %>% group_by(dpt) %>% summarise(
-      Unsustainable=sum(Unsustainable),
-      Sustainable=sum(Sustainable),
-      total_citations=sum(total_citations)) %>% ungroup(),
+      Unsustainable = sum(Unsustainable),
+      Sustainable = sum(Sustainable),
+      total_citations = sum(total_citations)) %>% ungroup(),
     species_name = NULL,
     join_by_expr =  c("dpt_simple" = "dpt"),
     value_unsustainable = Unsustainable,
@@ -2087,9 +2086,9 @@ plot_map_France_massif <- function() {
   plot_species_map_generic(
     spatial_data = spatial_massif,
     data = citations_by_species_massif %>% group_by(massif) %>% summarise(
-      Unsustainable=sum(Unsustainable),
-      Sustainable=sum(Sustainable),
-      total_citations=sum(total_citations)) %>% ungroup(),
+      Unsustainable = sum(Unsustainable),
+      Sustainable = sum(Sustainable),
+      total_citations = sum(total_citations)) %>% ungroup(),
     species_name = NULL,
     join_by_expr = "massif",
     value_unsustainable = Unsustainable,
@@ -2103,7 +2102,7 @@ plot_map_France_massif <- function() {
 
 plot_map_France_dpt() + plot_map_France_massif()
 
-# plot_zoom_png?width=728&height=497
+# plot_zoom_png?width = 728&height = 497
 png("plots/AppendixJ_all_France_species_maps.png", 
     width = 2184,
     height = 1491,
@@ -2136,8 +2135,8 @@ citations_by_species_dpt$ratio <- round(citations_by_species_dpt$Unsustainable/
 
 # Fit models for each species
 models <- lapply(unique(citations_by_species_dpt$name), function(sp) {
-  df_sp <- filter(citations_by_species_dpt, name == sp)
-  all_constant <- all(df_sp$Unsustainable == 0 | df_sp$Sustainable == 0)
+  df_sp <- filter(citations_by_species_dpt, name = =  sp)
+  all_constant <- all(df_sp$Unsustainable = =  0 | df_sp$Sustainable = =  0)
   
   # Check why we would skip
   if(length(unique(df_sp$dpt)) < 2) {
@@ -2149,7 +2148,7 @@ models <- lapply(unique(citations_by_species_dpt$name), function(sp) {
   
   # Fit GLMM
   model <- glmer(cbind(Unsustainable, Sustainable) ~ 1 + (1 | dpt),
-                 data = df_sp, family = binomial)
+  data = df_sp, family = binomial)
   
   # Check if model is singular
   singular_flag <- isSingular(model)
@@ -2175,7 +2174,7 @@ summary_species <- data.frame(
 )
 
 for(sp in names(models)) {
-  df_sp <- filter(citations_by_species_dpt, name == sp)
+  df_sp <- filter(citations_by_species_dpt, name = =  sp)
   
   # Observed ratio (national)
   total_non <- sum(df_sp$Unsustainable)
@@ -2216,32 +2215,32 @@ for(sp in names(models)) {
   }
   
   summary_species <- rbind(summary_species,
-                           data.frame(
-                             species_name = sp,
-                             observed_ratio = obs_ratio,
-                             pred_prob = pred_prob,
-                             pred_prob_logit = pred_prob_logit,
-                             sd_dpt = sd_dpt,
-                             MOR_dpt = MOR_dpt,
-                             CI_lower = CI_lower,
-                             CI_upper = CI_upper,
-                             skipped = flagged,
-                             # singular = singular_flag,
-                             reason_skipped = reason,
-                             stringsAsFactors = FALSE
-                           ))
+  data.frame(
+    species_name = sp,
+    observed_ratio = obs_ratio,
+    pred_prob = pred_prob,
+    pred_prob_logit = pred_prob_logit,
+    sd_dpt = sd_dpt,
+    MOR_dpt = MOR_dpt,
+    CI_lower = CI_lower,
+    CI_upper = CI_upper,
+    skipped = flagged,
+    # singular = singular_flag,
+    reason_skipped = reason,
+    stringsAsFactors = FALSE
+    ))
 }
 
 summary_species
 # summary(models$`Allium ursinum`$model)
 
-write.csv(summary_species, "processed_data/AppendixK_MOR_calculations.csv", row.names=F)
+write.csv(summary_species, "processed_data/AppendixK_MOR_calculations.csv", row.names = F)
 
 ####_________####
 #### Figure 6 - Are the assumptions of the respondents concerning species regulations correct ? #####
 BDC_STATUTS_17 <- read_csv("raw_data/BDC_STATUTS_17.csv") %>%
-  # filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL", "REGLSO")) %>% 
-  filter(REGROUPEMENT_TYPE == "Protection" | CD_TYPE_STATUT %in% c("REGL")) %>% 
+  # filter(REGROUPEMENT_TYPE = =  "Protection" | CD_TYPE_STATUT %in% c("REGL", "REGLSO")) %>% 
+  filter(REGROUPEMENT_TYPE = =  "Protection" | CD_TYPE_STATUT %in% c("REGL")) %>% 
   mutate(
     LB_ADM_TR_simpl =  LB_ADM_TR,
     # Replace "-" and "'" with space
@@ -2262,19 +2261,19 @@ BDC_STATUTS_17_summar <- BDC_STATUTS_17 %>%
 data_regl_prot <- all_data %>%
   dplyr::select(id, SPECIES_name, CD_REF, SPECIES_species_regulation, SPECIES_regulation_adapted, SPECIES_dpt) %>%
   unique() %>%
-  left_join(departements %>% dplyr::select(dpt_simple, region_simple), by=join_by("SPECIES_dpt"=="dpt_simple")) %>%
+  left_join(departements %>% dplyr::select(dpt_simple, region_simple), by = join_by("SPECIES_dpt" = =  "dpt_simple")) %>%
   dplyr::select(-geometry)
 
 # Separate different levels of protections/regulations
 bdc_dpt <- data_regl_prot %>%
   # Join department-specific regulations
-  left_join(BDC_STATUTS_17 %>% filter(NIVEAU_ADMIN == "Département"), 
-            by = join_by("CD_REF"=="CD_REF", "SPECIES_dpt"=="LB_ADM_TR_simpl"))
+  left_join(BDC_STATUTS_17 %>% filter(NIVEAU_ADMIN = =  "Département"), 
+            by = join_by("CD_REF" = =  "CD_REF", "SPECIES_dpt" = =  "LB_ADM_TR_simpl"))
 
 bdc_region <- data_regl_prot %>%
   # Join department-specific regulations
   left_join(BDC_STATUTS_17 %>% filter(NIVEAU_ADMIN %in% c("Ancienne région", "Région")), 
-            by = join_by("CD_REF"=="CD_REF", "region_simple"=="LB_ADM_TR_simpl"))
+            by = join_by("CD_REF" = =  "CD_REF", "region_simple" = =  "LB_ADM_TR_simpl"))
 
 
 bdc_national <- data_regl_prot %>%
@@ -2389,8 +2388,8 @@ count_regul_answers
 data_regl_eval <- data_regl_prot_join %>%
   mutate(
     correct_answer = case_when(
-      grepl("Yes", SPECIES_species_regulation) & statut_group != "No regulation/protection" ~ "Correct",
-      grepl("No", SPECIES_species_regulation) & statut_group == "No regulation/protection" ~ "Correct",
+      grepl("Yes", SPECIES_species_regulation) & statut_group ! =  "No regulation/protection" ~ "Correct",
+      grepl("No", SPECIES_species_regulation) & statut_group = =  "No regulation/protection" ~ "Correct",
       TRUE ~ "Incorrect"
     )
   )
@@ -2410,7 +2409,7 @@ data_regl_eval_summar <- data_regl_eval %>%
 pct_correct_regul <- ggplot(data_regl_eval_summar, aes(x = SPECIES_species_regulation, y = pct, fill = correct_answer)) +
   geom_bar(stat = "identity") +
   labs(x = "Is the species regulated or protected ?", y = "Percentage of respondents", fill = "Answer evaluation") +
-  scale_fill_manual(values=c("Incorrect"="#D00F0F", "Correct"="#64A251")) +
+  scale_fill_manual(values = c("Incorrect" = "#D00F0F", "Correct" = "#64A251")) +
   theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 12),
@@ -2426,7 +2425,7 @@ pct_correct_regul <- ggplot(data_regl_eval_summar, aes(x = SPECIES_species_regul
 nb_correct_regul <- ggplot(data_regl_eval_summar, aes(x = SPECIES_species_regulation, y = n, fill = correct_answer)) +
   geom_bar(stat = "identity") +
   labs(x = "Is the species regulated or protected ?", y = "Number of respondents", fill = "Answer evaluation") +
-  scale_fill_manual(values=c("Incorrect"="#D00F0F", "Correct"="#64A251")) +
+  scale_fill_manual(values = c("Incorrect" = "#D00F0F", "Correct" = "#64A251")) +
   theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 12),
@@ -2445,7 +2444,7 @@ regulation_plot <- count_regul_answers + pct_correct_regul + plot_annotation(tag
 
 regulation_plot
 
-# plot_zoom_png?width=982&height=515
+# plot_zoom_png?width = 982&height = 515
 png("plots/Figure_6_regulations.png", 
     width = 2946,     # pixels
     height = 1143,   # pixels
@@ -2455,10 +2454,10 @@ dev.off()
 
 # Find if the species indicated as having a regulation when they don't, are regulated elsewhere
 df <- data_regl_prot_join %>%
-  subset(SPECIES_species_regulation=="Yes" & statut_group=="No regulation/protection",
-         select=c(SPECIES_species_regulation, statut_group, national_status)) %>%
+  subset(SPECIES_species_regulation = =  "Yes" & statut_group = =  "No regulation/protection",
+  select = c(SPECIES_species_regulation, statut_group, national_status)) %>%
   group_by(national_status) %>%
-  summarise(n=n())
+  summarise(n = n())
 
 
 #### Does the profile of respondents determine their likelihood of correctly reporting species regulations? ####
@@ -2468,11 +2467,11 @@ data_regl_eval$reglem_glm <- paste(data_regl_eval$SPECIES_species_regulation, da
 data_regl_eval <- data_regl_eval %>%
   left_join(dplyr::select(all_data_profile_clusters, id, Group)%>%unique())
 
-data_regl_eval$correct_answer <- ifelse(data_regl_eval$correct_answer == "Correct", 1, 0)
+data_regl_eval$correct_answer <- ifelse(data_regl_eval$correct_answer = =  "Correct", 1, 0)
 
 glm_fit <- glmer(correct_answer ~ Group +(1|SPECIES_name),
-               data = data_regl_eval,
-               family = binomial(link="logit"))
+data = data_regl_eval,
+family = binomial(link = "logit"))
 summary(glm_fit)
 
 # Odds ratios and contributions
@@ -2496,11 +2495,11 @@ sust_regul_status <- data_regl_prot_join %>%
 
 
 result <- sust_regul_status %>%
-  dplyr::filter(SPECIES_sustainability == "Unsustainable") %>%
+  dplyr::filter(SPECIES_sustainability = =  "Unsustainable") %>%
   dplyr::summarise(
     total_unsustainable = sum(n_species),
     unsustainable_unregulated = sum(
-      n_species[statut_group == "No regulation/protection"],
+      n_species[statut_group = =  "No regulation/protection"],
       na.rm = TRUE
     ),
     percent = 100 * unsustainable_unregulated / total_unsustainable
@@ -2514,14 +2513,14 @@ sust_regul_species2 <- data_regl_prot_join %>%
 
 unprot <- sust_regul_species2 %>%
   dplyr::filter(
-    statut_group == "No regulation/protection"
+    statut_group = =  "No regulation/protection"
   )
 
 unsust_ratio <- unprot %>%
   dplyr::group_by(CD_REF, SPECIES_name) %>%
   dplyr::summarise(
     total_citations = n(),
-    unsustainable_citations = sum(SPECIES_sustainability == "Unsustainable", na.rm = TRUE),
+    unsustainable_citations = sum(SPECIES_sustainability = =  "Unsustainable", na.rm = TRUE),
     ratio_unsustainable = unsustainable_citations / total_citations,
     .groups = "drop"
   )
